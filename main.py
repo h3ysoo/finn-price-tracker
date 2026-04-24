@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from analyzer import analyze_prices, analyze_top_listings
+from analyzer import analyze_prices, analyze_top_listings, select_candidates
 from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES, LISTING_MIN_PRICE
 from database import Database
 from models import Listing, PriceReport
@@ -159,14 +159,15 @@ async def cmd_search(args: argparse.Namespace) -> int:
                 console.print("[yellow]Filtre sonrası ilan kalmadı.[/yellow]")
                 return 1
 
-            # 3. Fiyata göre sırala (price_score hesapla)
+            # 3. Tüm ilanların detay sayfasına gir (paralel)
+            with console.status(f"[cyan]Tüm {len(listings)} ilanın detay sayfası okunuyor..."):
+                await scraper.enrich_all(listings, concurrency=3)
+
+            # 4. Detaylı bilgilerle fiyat analizi
             report = analyze_prices(listings)
 
-            # 4. En ucuz N ilanın detay sayfasını çek (tam açıklama)
-            top = report.listings[:ai_limit]
-            if ai_limit > 0 and top:
-                with console.status(f"[cyan]En ucuz {len(top)} ilanın detay sayfası okunuyor..."):
-                    await scraper.enrich_listings(top, limit=ai_limit)
+            # 5. Gerçek fırsat adaylarını seç (enrich zaten yapıldı)
+            top = select_candidates(report, limit=ai_limit)
 
     except Exception as e:
         console.print(f"[red]Scraper hatası:[/red] {e}")

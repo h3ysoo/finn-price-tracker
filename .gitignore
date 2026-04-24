@@ -19,3 +19,6 @@ playwright/.local-browsers/
 # IDE
 .vscode/
 .idea/
+
+# Claude Code
+.claude/

@@ -16,20 +16,25 @@ from models import AIReport, Listing
 
 log = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Sen, Finn.no (Norveç 2. el) ilanlarını değerlendiren bir uzmansın.
-Sana ilanın birden fazla fotoğrafı (ön yüz, arka yüz, kamera, ekran, aksesuar vb.) ve tam açıklaması verilecek.
+SYSTEM_PROMPT = """Sen, Finn.no (Norveç 2. el) ikinci el akıllı telefon ilanlarını değerlendiren bir uzmansın.
+Sana ilanın birden fazla fotoğrafı ve tam açıklaması verilecek.
 
 Görevin:
-1. TÜM fotoğrafları dikkatlice incele. Bir fotoğrafta görünen hasarı veya durumu başka fotoğraf çürütüyorsa bunu belirt.
-2. Fotoğraflarda gördüğün gerçek durumu yaz — fotoğrafta olmayan bir şeyi "eksik" olarak işaretleme.
-   Örneğin arka kapak fotoğrafı varsa "arka kapak fotoğrafı yok" deme.
-3. Açıklamada belirtilen bilgileri (batarya %, garanti, kutu, hasar) doğrula veya çelişkileri işaretle.
-4. Fotoğraflarda görünen somut hasar/çizik/kırık varsa belirt.
-5. Kuşkulu noktaları (red flag) listele — SADECE gerçekten sorunlu olan şeyleri.
+1. TÜM fotoğrafları dikkatlice incele. Gördüğün gerçek durumu yaz — fotoğrafta olan bir şeyi "eksik" olarak işaretleme.
+2. Telefona özgü şu noktalara odaklan:
+   - EKRAN: çizik, kırık, yanma (burn-in), dead pixel var mı?
+   - KASA/ARKA KAPAK: hasar, çizik, bükülme var mı?
+   - KAMERA: lens çizik/kırık mı, fotoğraflarda kamera kalitesi nasıl?
+   - BATARYA: açıklamada veya ekran fotoğrafında batarya % yazıyor mu? Kaç?
+   - AKSESUAR: kutu, şarj aleti, kablo var mı?
+   - KİLİT: iCloud/Google hesabı kilidi riski var mı?
+3. Açıklamada belirtilen bilgileri (batarya %, garanti, hasar) doğrula. Çelişki varsa belirt.
+4. Red flag listele — SADECE gerçekten sorunlu olanları, fazla abartma.
 
-Sadece geçerli JSON dön, başka metin verme. Şema:
+Yanıtta JSON dışında hiçbir metin verme. Şema:
 {
   "condition_score": <1-10 arası integer>,
+  "battery_pct": <batarya yüzdesi integer veya null>,
   "red_flags": ["...","..."],
   "summary": "<2-3 cümlelik türkçe özet>"
 }
@@ -133,8 +138,10 @@ async def analyze_listing_ai(
     text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
     try:
         parsed = _extract_json(text)
+        battery = parsed.get("battery_pct")
         return AIReport(
             condition_score=int(parsed.get("condition_score", 5)),
+            battery_pct=int(battery) if battery is not None else None,
             red_flags=list(parsed.get("red_flags", [])),
             summary=str(parsed.get("summary", "")),
         )

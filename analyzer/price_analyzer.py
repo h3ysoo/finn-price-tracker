@@ -82,3 +82,30 @@ def analyze_prices(listings: Iterable[Listing]) -> PriceReport:
         key=lambda x: (x.price_score is None, x.price_score if x.price_score is not None else 0),
     )
     return report
+
+
+def select_candidates(
+    report: PriceReport,
+    limit: int,
+    suspicious_threshold: float = -60.0,
+) -> list[Listing]:
+    """AI analizi için en iyi aday ilanları seç.
+
+    Öncelik: composite_score (varsa), yoksa price_score.
+    Piyasanın %60'ından fazla altındaki ilanları atla.
+    """
+    candidates = [
+        l for l in report.listings
+        if l.price_score is not None and l.price_score > suspicious_threshold
+    ]
+
+    if not candidates:
+        candidates = [l for l in report.listings if l.price_score is not None]
+
+    # composite_score varsa ona göre, yoksa price_score'a göre sırala
+    if any(l.composite_score is not None for l in candidates):
+        candidates.sort(key=lambda x: x.composite_score or 0, reverse=True)
+    else:
+        candidates.sort(key=lambda x: x.price_score or 0)
+
+    return candidates[:limit]

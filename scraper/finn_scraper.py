@@ -144,11 +144,22 @@ class FinnScraper:
         price_text = await price_el.inner_text() if price_el else None
         price = _parse_price(price_text)
 
-        # Konum
-        loc_el = await card.query_selector(
-            "[data-testid='location'], [class*='location']"
-        )
-        location = (await loc_el.inner_text()).strip() if loc_el else None
+        # Konum — birden fazla selector dene
+        location: Optional[str] = None
+        for loc_sel in [
+            "[data-testid='location']",
+            "[class*='location']",
+            "[class*='address']",
+            "span[class*='text-caption']",
+            "div[class*='between'] span:last-child",
+        ]:
+            loc_el = await card.query_selector(loc_sel)
+            if loc_el:
+                txt = (await loc_el.inner_text()).strip()
+                # Fiyat veya tarih değil, gerçek konum mu?
+                if txt and not any(c.isdigit() for c in txt[:3]) and len(txt) > 2:
+                    location = txt.split("\n")[0].strip()
+                    break
 
         # Görsel
         img_el = await card.query_selector("img")
@@ -225,6 +236,38 @@ class FinnScraper:
             if description:
                 listing.description = description
 
+            # --- Konum (detay sayfasından daha güvenilir) ---
+            if not listing.location:
+                try:
+                    for loc_sel in [
+                        "[data-testid='object-address']",
+                        "span[data-testid='location']",
+                        # "Sted" (yer) etiketi — Finn yapılandırılmış veri satırı
+                        "dt:text('Sted') + dd",
+                        "th:text('Sted') ~ td",
+                    ]:
+                        el = await page.query_selector(loc_sel)
+                        if el:
+                            txt = (await el.inner_text()).strip()
+                            if txt:
+                                listing.location = txt.split("\n")[0].strip()
+                                break
+
+                    # Hâlâ bulunamadıysa sayfanın tamamından "Sted" satırını ara
+                    if not listing.location:
+                        listing.location = await page.evaluate("""() => {
+                            const labels = [...document.querySelectorAll('dt, th, span, div')];
+                            for (const el of labels) {
+                                if (el.innerText && el.innerText.trim() === 'Sted') {
+                                    const next = el.nextElementSibling;
+                                    if (next) return next.innerText.trim().split('\\n')[0];
+                                }
+                            }
+                            return null;
+                        }""")
+                except Exception:
+                    pass
+
             # --- Galeri görselleri (yüksek çözünürlük, tümü) ---
             try:
                 seen_urls: set[str] = set(listing.image_urls)
@@ -280,6 +323,27 @@ class FinnScraper:
         for listing in targets:
             await self.fetch_detail(listing)
             await asyncio.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
+
+    async def enrich_all(self, listings: list[Listing], concurrency: int = 3) -> None:
+        """Tüm ilanların detay sayfasını paralel çek.
+
+        `concurrency` adet sayfa aynı anda açılır; bu sayede hız/礼儀 dengesi korunur.
+        """
+        log.info("Tüm ilanların detay sayfaları çekiliyor (%d ilan, %d paralel)...",
+                 len(listings), concurrency)
+        semaphore = asyncio.Semaphore(concurrency)
+        done = 0
+        total = len(listings)
+
+        async def _fetch_one(listing: Listing) -> None:
+            nonlocal done
+            async with semaphore:
+                await self.fetch_detail(listing)
+                done += 1
+                log.info("Detay: %d/%d — %s", done, total, listing.title[:50])
+                await asyncio.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
+
+        await asyncio.gather(*(_fetch_one(l) for l in listings))
 
     async def search(self, query: str, pages: int = DEFAULT_PAGES) -> list[Listing]:
         """Verilen arama terimi için birden fazla sayfa tara."""

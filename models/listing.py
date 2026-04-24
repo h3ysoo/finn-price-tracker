@@ -11,6 +11,7 @@ class AIReport(BaseModel):
     """Claude Vision analizi çıktısı."""
 
     condition_score: int = Field(..., ge=1, le=10)
+    battery_pct: Optional[int] = None
     red_flags: list[str] = Field(default_factory=list)
     summary: str = ""
 
@@ -27,7 +28,8 @@ class Listing(BaseModel):
     scraped_at: datetime = Field(default_factory=datetime.utcnow)
     image_urls: list[str] = Field(default_factory=list)
     description: str = ""
-    price_score: Optional[float] = None  # piyasa ortalamasına göre % (negatif = ucuz)
+    price_score: Optional[float] = None      # piyasa ortalamasına göre % (negatif = ucuz)
+    composite_score: Optional[float] = None  # bileşik fırsat skoru 0-100 (yüksek = iyi)
     ai_report: Optional[AIReport] = None
 
 
