@@ -1,90 +1,101 @@
 # finn-price-tracker
 
-Norveç 2. el pazarı **Finn.no** için fiyat analiz aracı.
-İlanları scrape eder, istatistiksel fiyat analizi yapar ve en ucuz ilanları
-**Claude Vision** ile fotoğraf + açıklama üzerinden değerlendirir.
+A price analysis tool for **Finn.no**, Norway's second-hand marketplace.
+Scrapes listings, runs statistical price analysis, and evaluates the cheapest listings
+using **Claude Vision** — analyzing photos and descriptions together.
 
-## Özellikler
+## Features
 
-- `playwright` ile async scraping (pagination + rate limiting)
-- İstatistiksel rapor: ortalama, medyan, std, min/max, P25/P75
-- Her ilana piyasa ortalamasına göre yüzdelik **fiyat skoru**
-- Claude `claude-sonnet-4-20250514` ile fotoğraf + açıklama analizi
-- SQLite ile kalıcılık; `deals` komutuyla geçmişten en iyi fırsatlar
-- `rich` ile renkli terminal çıktısı
-- UTF-8 + Norveç karakterleri (æ ø å) uyumlu
+- Async scraping with `playwright` (pagination + rate limiting)
+- Statistical report: mean, median, std dev, min/max, P25/P75
+- **Price score** per listing relative to market average
+- Irrelevant listing filter (accessories, empty boxes, buy-wanted ads)
+- Full listing detail fetching — reads complete descriptions from each listing page
+- Multi-image analysis: sends up to 8 gallery photos to Claude per listing
+- Claude Vision analysis of photos + description (condition score, red flags, summary)
+- SQLite persistence; `deals` command to surface best historic deals
+- Colorful terminal output with `rich`
+- UTF-8 + Norwegian character support (æ ø å)
 
-## Kurulum
+## Setup
 
 ```bash
-# 1. Sanal ortam
+# 1. Virtual environment
 python -m venv .venv
 # Windows:
 .venv\Scripts\activate
 # macOS/Linux:
 source .venv/bin/activate
 
-# 2. Bağımlılıklar
+# 2. Dependencies
 pip install -r requirements.txt
 
-# 3. Playwright tarayıcıları
-playwright install chromium
+# 3. Playwright browser
+python -m playwright install chromium
 
-# 4. API anahtarı
+# 4. API key
 cp .env.example .env
-# .env içine ANTHROPIC_API_KEY= anahtarını yaz
+# Add your Anthropic API key to .env:
+# ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-## Kullanım
+## Usage
 
 ```bash
-# Arama + fiyat analizi + ilk 5'in AI analizi
+# Search + price analysis + AI analysis of the cheapest 5 listings
 python main.py search "iPhone 13 Pro Max 256GB"
 
-# Sayfa sayısı / AI limiti değiştir
+# Change page count or AI limit
 python main.py search "MacBook Pro M1" --pages 5 --ai-limit 3
 
-# Tarayıcıyı görünür çalıştır (debug)
+# Run with visible browser (debug mode)
 python main.py search "Sony WH-1000XM5" --show-browser
 
-# DB'deki tüm kayıtlardan en iyi fırsatlar
+# Show best deals from the local database
 python main.py deals --limit 20
 
-# Verbose log
+# Verbose logging
 python main.py -v search "Canon EOS R6"
 ```
 
-## Klasör Yapısı
+## Project Structure
 
 ```
 finn-price-tracker/
-├── main.py                  # CLI
-├── config.py                # Ayarlar
-├── scraper/finn_scraper.py  # Playwright scraper
+├── main.py                      # CLI entry point
+├── config.py                    # Settings
+├── scraper/
+│   ├── finn_scraper.py          # Playwright scraper + detail page fetcher
+│   └── listing_filter.py        # Irrelevant listing filter
 ├── analyzer/
-│   ├── price_analyzer.py    # İstatistiksel analiz
-│   └── ai_analyzer.py       # Claude Vision analizi
-├── database/db.py           # SQLite CRUD
-├── models/listing.py        # Pydantic modeller
-├── data/listings.db         # (ilk çalıştırmada üretilir)
+│   ├── price_analyzer.py        # Statistical analysis
+│   └── ai_analyzer.py           # Claude Vision analysis
+├── database/db.py               # SQLite CRUD
+├── models/listing.py            # Pydantic models
+├── data/listings.db             # Created on first run
 ├── requirements.txt
 ├── .env.example
 └── README.md
 ```
 
-## Fiyat Skoru
+## Price Score
 
 ```
-price_score = (ilan_fiyatı - ortalama) / ortalama * 100
+price_score = (listing_price - mean) / mean * 100
 ```
 
-- `-20%` → piyasa ortalamasından %20 ucuz (iyi fırsat)
-- `+15%` → piyasa ortalamasından %15 pahalı
+- `-20%` → 20% below market average (good deal)
+- `+15%` → 15% above market average (overpriced)
 
-## Notlar
+## How AI Analysis Works
 
-- Finn.no yapısı değiştirirse `scraper/finn_scraper.py` içindeki CSS seçicileri
-  güncellemek gerekebilir.
-- AI analizi API maliyeti yaratır; varsayılan olarak sadece en ucuz 5 ilan için
-  çalışır (`--ai-limit` ile değiştirilebilir).
-- Finn.no Terms of Service'i ihlal etmemek için rate-limit çok düşürülmemeli.
+1. The scraper visits each candidate listing's detail page and fetches the full description and all gallery images (up to 8).
+2. Images are upgraded to 960×720 resolution from the Finn CDN.
+3. All images are sent to Claude in a single request alongside the full description.
+4. Claude returns a condition score (1–10), red flags, and a summary in Turkish.
+
+## Notes
+
+- If Finn.no changes its page structure, CSS selectors in `scraper/finn_scraper.py` may need updating.
+- AI analysis incurs API costs; by default only the 5 cheapest listings are analyzed (`--ai-limit` to change).
+- Do not lower the rate limit aggressively to stay within Finn.no's Terms of Service.
