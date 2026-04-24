@@ -1,0 +1,21 @@
+# Gizli bilgiler — asla commit etme
+.env
+
+# Veritabanı
+data/
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+
+# Playwright
+playwright/.local-browsers/
+
+# IDE
+.vscode/
+.idea/
