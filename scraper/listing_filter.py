@@ -47,9 +47,7 @@ _BLACKLIST_PATTERNS: list[str] = [
     r"\btilbehør\b",
     r"\baccessories\b",
     # Ticari / toplu satış sinyalleri
-    r"\bsalg\b",               # "SALG" = satış/indirim kampanyası tarzı
     r"\boppover\b",            # "13 & oppover" = model aralığı
-    r"\beller\b",              # "12, 13 eller..." = belirsiz model
 ]
 
 _BLACKLIST_RE = re.compile("|".join(_BLACKLIST_PATTERNS), re.IGNORECASE)
@@ -57,8 +55,8 @@ _BLACKLIST_RE = re.compile("|".join(_BLACKLIST_PATTERNS), re.IGNORECASE)
 
 def is_relevant(listing: Listing, min_price: Optional[int] = None) -> bool:
     """True → ilan muhtemelen gerçek bir cihaz satışı."""
-    # Kara liste kontrolü (başlık + açıklama snippet)
-    combined = f"{listing.title} {listing.description}"
+    # Kara liste kontrolü — bilerek sadece başlık: açıklamada "lader følger med"
+    # (şarj aleti dahil) gibi meşru ifadeler yanlış pozitif üretir
     if _BLACKLIST_RE.search(listing.title):
         log.debug("Filtrelendi (kara liste): %s", listing.title)
         return False
