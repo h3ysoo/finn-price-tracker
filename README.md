@@ -82,6 +82,13 @@ finn-price-tracker/
 └── README.md
 ```
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Price Score
 
 ```
