@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from analyzer import analyze_prices, analyze_top_listings, select_candidates, score_listings
 from config import AI_ANALYSIS_LIMIT, LISTING_MIN_PRICE
+from database import Database
 from models import Listing, PriceReport
 from scraper import FinnScraper, filter_listings
 
@@ -92,6 +93,9 @@ async def _pipeline(
         top = select_candidates(report, limit=ai_limit)
         if top:
             await analyze_top_listings(top, limit=ai_limit)
+
+        # Sonuçları kalıcılaştır — fiyat geçmişi de burada birikir
+        Database().save_listings(report.listings)
 
         return report, top
 
