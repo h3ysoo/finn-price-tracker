@@ -8,7 +8,7 @@ import re
 from typing import Optional
 from urllib.parse import urlencode, urljoin
 
-from playwright.async_api import Browser, Page, async_playwright
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 from config import (
     DEFAULT_PAGES,
@@ -60,27 +60,30 @@ class FinnScraper:
     def __init__(self, headless: bool = True):
         self.headless = headless
         self._browser: Optional[Browser] = None
+        self._ctx: Optional[BrowserContext] = None
         self._pw = None
 
     async def __aenter__(self) -> "FinnScraper":
         self._pw = await async_playwright().start()
         self._browser = await self._pw.chromium.launch(headless=self.headless)
+        self._ctx = await self._browser.new_context(
+            user_agent=USER_AGENT,
+            locale="nb-NO",
+            viewport={"width": 1366, "height": 900},
+        )
         return self
 
     async def __aexit__(self, exc_type, exc, tb) -> None:
+        if self._ctx:
+            await self._ctx.close()
         if self._browser:
             await self._browser.close()
         if self._pw:
             await self._pw.stop()
 
     async def _new_page(self) -> Page:
-        assert self._browser is not None
-        ctx = await self._browser.new_context(
-            user_agent=USER_AGENT,
-            locale="nb-NO",
-            viewport={"width": 1366, "height": 900},
-        )
-        return await ctx.new_page()
+        assert self._ctx is not None
+        return await self._ctx.new_page()
 
     @staticmethod
     def _build_url(query: str, page: int) -> str:
