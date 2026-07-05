@@ -160,15 +160,16 @@ async def cmd_search(args: argparse.Namespace) -> int:
                 console.print("[yellow]Filtre sonrası ilan kalmadı.[/yellow]")
                 return 1
 
-            # 3. Tüm ilanların detay sayfasına gir (paralel)
-            with console.status(f"[cyan]Tüm {len(listings)} ilanın detay sayfası okunuyor..."):
-                await scraper.enrich_all(listings, concurrency=3)
-
-            # 4. Detaylı bilgilerle fiyat analizi
+            # 3. Fiyat analizi (arama kartlarındaki fiyatlar yeterli)
             report = analyze_prices(listings)
 
-            # 5. Gerçek fırsat adaylarını seç (enrich zaten yapıldı)
+            # 4. AI adaylarını seç, sadece onların detay sayfasını oku.
+            #    Tüm ilanları enrich etmek 10 kat daha yavaştı ve CLI
+            #    akışında detaylar yalnızca AI analizi için kullanılıyor.
             top = select_candidates(report, limit=ai_limit)
+            if top:
+                with console.status(f"[cyan]{len(top)} aday ilanın detay sayfası okunuyor..."):
+                    await scraper.enrich_all(top, concurrency=3)
 
     except Exception as e:
         console.print(f"[red]Scraper hatası:[/red] {e}")
