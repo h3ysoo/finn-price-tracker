@@ -101,18 +101,8 @@ async def _pipeline(
 
 
 def run_pipeline(query, pages, ai_limit, min_price):
-    # Windows'ta Playwright subprocess için ProactorEventLoop gerekli
-    if sys.platform == "win32":
-        loop = asyncio.ProactorEventLoop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(
-                _pipeline(query, pages, ai_limit, min_price)
-            )
-        finally:
-            loop.close()
-    else:
-        return asyncio.run(_pipeline(query, pages, ai_limit, min_price))
+    # asyncio.run Windows'ta da varsayılan olarak ProactorEventLoop kullanır (3.8+)
+    return asyncio.run(_pipeline(query, pages, ai_limit, min_price))
 
 
 # ---------------------------------------------------------------------------

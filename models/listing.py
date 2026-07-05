@@ -1,7 +1,7 @@
 """Ortak veri modelleri."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -25,7 +25,7 @@ class Listing(BaseModel):
     price_nok: Optional[int] = None
     url: str
     location: Optional[str] = None
-    scraped_at: datetime = Field(default_factory=datetime.utcnow)
+    scraped_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     image_urls: list[str] = Field(default_factory=list)
     description: str = ""
     price_score: Optional[float] = None      # piyasa ortalamasına göre % (negatif = ucuz)
