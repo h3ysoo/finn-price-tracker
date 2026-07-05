@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS listings (
     image_urls TEXT,
     description TEXT,
     price_score REAL,
+    composite_score REAL,
     condition_score INTEGER,
+    battery_pct INTEGER,
     ai_summary TEXT,
     ai_red_flags TEXT,
     PRIMARY KEY (id, query)
@@ -56,6 +58,15 @@ class Database:
     def _init(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Eski DB dosyalarına sonradan eklenen kolonları tamamla."""
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(listings)")}
+        for col, sql_type in (("composite_score", "REAL"), ("battery_pct", "INTEGER")):
+            if col not in cols:
+                conn.execute(f"ALTER TABLE listings ADD COLUMN {col} {sql_type}")
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -87,7 +98,9 @@ class Database:
                     json.dumps(l.image_urls, ensure_ascii=False),
                     l.description,
                     l.price_score,
+                    l.composite_score,
                     l.ai_report.condition_score if l.ai_report else None,
+                    l.ai_report.battery_pct if l.ai_report else None,
                     l.ai_report.summary if l.ai_report else None,
                     json.dumps(l.ai_report.red_flags, ensure_ascii=False) if l.ai_report else None,
                 )
@@ -99,9 +112,9 @@ class Database:
                 """
                 INSERT INTO listings
                     (id, query, title, price, url, location, scraped_at,
-                     image_urls, description, price_score,
-                     condition_score, ai_summary, ai_red_flags)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     image_urls, description, price_score, composite_score,
+                     condition_score, battery_pct, ai_summary, ai_red_flags)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 ON CONFLICT(id, query) DO UPDATE SET
                     title=excluded.title,
                     price=excluded.price,
@@ -111,7 +124,9 @@ class Database:
                     image_urls=excluded.image_urls,
                     description=excluded.description,
                     price_score=excluded.price_score,
+                    composite_score=COALESCE(excluded.composite_score, listings.composite_score),
                     condition_score=COALESCE(excluded.condition_score, listings.condition_score),
+                    battery_pct=COALESCE(excluded.battery_pct, listings.battery_pct),
                     ai_summary=COALESCE(excluded.ai_summary, listings.ai_summary),
                     ai_red_flags=COALESCE(excluded.ai_red_flags, listings.ai_red_flags)
                 """,
@@ -207,6 +222,7 @@ class Database:
                 red_flags = []
             ai_report = AIReport(
                 condition_score=row["condition_score"] or 5,
+                battery_pct=row["battery_pct"],
                 red_flags=red_flags,
                 summary=row["ai_summary"] or "",
             )
@@ -225,6 +241,7 @@ class Database:
             image_urls=image_urls,
             description=row["description"] or "",
             price_score=row["price_score"],
+            composite_score=row["composite_score"],
             ai_report=ai_report,
         )
 
