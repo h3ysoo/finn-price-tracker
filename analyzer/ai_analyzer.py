@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import logging
-import re
 from typing import Optional
 
 import aiohttp
@@ -16,29 +14,58 @@ from models import AIReport, Listing
 
 log = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Sen, Finn.no (Norveç 2. el) ikinci el akıllı telefon ilanlarını değerlendiren bir uzmansın.
+SYSTEM_PROMPT = """Sen, Finn.no (Norveç 2. el pazarı) ilanlarını değerlendiren bir uzmansın.
 Sana ilanın birden fazla fotoğrafı ve tam açıklaması verilecek.
 
 Görevin:
 1. TÜM fotoğrafları dikkatlice incele. Gördüğün gerçek durumu yaz — fotoğrafta olan bir şeyi "eksik" olarak işaretleme.
-2. Telefona özgü şu noktalara odaklan:
+2. Ürün bir telefon/tablet/laptop ise şu noktalara odaklan:
    - EKRAN: çizik, kırık, yanma (burn-in), dead pixel var mı?
    - KASA/ARKA KAPAK: hasar, çizik, bükülme var mı?
-   - KAMERA: lens çizik/kırık mı, fotoğraflarda kamera kalitesi nasıl?
+   - KAMERA: lens çizik/kırık mı?
    - BATARYA: açıklamada veya ekran fotoğrafında batarya % yazıyor mu? Kaç?
    - AKSESUAR: kutu, şarj aleti, kablo var mı?
    - KİLİT: iCloud/Google hesabı kilidi riski var mı?
+   Başka bir ürün kategorisiyse (kulaklık, kamera, konsol vb.) o kategoriye uygun
+   aşınma, hasar ve eksik parça kriterlerine göre değerlendir; batarya bilgisi
+   anlamlı değilse null bırak.
 3. Açıklamada belirtilen bilgileri (batarya %, garanti, hasar) doğrula. Çelişki varsa belirt.
 4. Red flag listele — SADECE gerçekten sorunlu olanları, fazla abartma.
 
-Yanıtta JSON dışında hiçbir metin verme. Şema:
-{
-  "condition_score": <1-10 arası integer>,
-  "battery_pct": <batarya yüzdesi integer veya null>,
-  "red_flags": ["...","..."],
-  "summary": "<2-3 cümlelik türkçe özet>"
-}
+Sonucu report_listing_assessment aracıyla raporla.
 """
+
+# Zorunlu tool çağrısı — Claude'un çıktısını şemaya kilitler, JSON parse hatasını yok eder
+AI_REPORT_TOOL = {
+    "name": "report_listing_assessment",
+    "description": "İkinci el ilan değerlendirme sonucunu yapılandırılmış olarak raporla.",
+    "strict": True,
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "condition_score": {
+                "type": "integer",
+                "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+                "description": "Ürünün genel durumu, 1 (çok kötü) - 10 (yeni gibi)",
+            },
+            "battery_pct": {
+                "type": ["integer", "null"],
+                "description": "Batarya sağlığı yüzdesi; bilinmiyorsa veya anlamsızsa null",
+            },
+            "red_flags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Gerçekten sorunlu noktalar (Türkçe)",
+            },
+            "summary": {
+                "type": "string",
+                "description": "2-3 cümlelik Türkçe özet",
+            },
+        },
+        "required": ["condition_score", "battery_pct", "red_flags", "summary"],
+        "additionalProperties": False,
+    },
+}
 
 
 async def _download_image(url: str) -> Optional[tuple[bytes, str]]:
@@ -60,18 +87,6 @@ async def _download_image(url: str) -> Optional[tuple[bytes, str]]:
     except Exception as e:
         log.warning("Görsel indirme hatası: %s", e)
         return None
-
-
-def _extract_json(text: str) -> dict:
-    """Claude cevabındaki JSON bloğunu ayıkla."""
-    # Saf JSON veya ```json ... ``` bloğu
-    fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if fence:
-        return json.loads(fence.group(1))
-    brace = re.search(r"\{.*\}", text, re.DOTALL)
-    if brace:
-        return json.loads(brace.group(0))
-    raise ValueError(f"JSON bulunamadı: {text[:200]}")
 
 
 async def analyze_listing_ai(
@@ -127,26 +142,32 @@ async def analyze_listing_ai(
     try:
         msg = await client.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=600,
+            max_tokens=1000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": content}],
+            tools=[AI_REPORT_TOOL],
+            tool_choice={"type": "tool", "name": AI_REPORT_TOOL["name"]},
         )
     except Exception as e:
         log.error("Claude API hatası (%s): %s", listing.id, e)
         return None
 
-    text = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
+    block = next((b for b in msg.content if getattr(b, "type", "") == "tool_use"), None)
+    if block is None:
+        log.error("Tool çağrısı dönmedi (%s): stop_reason=%s", listing.id, msg.stop_reason)
+        return None
+
+    parsed = block.input
     try:
-        parsed = _extract_json(text)
         battery = parsed.get("battery_pct")
         return AIReport(
-            condition_score=int(parsed.get("condition_score", 5)),
+            condition_score=int(parsed["condition_score"]),
             battery_pct=int(battery) if battery is not None else None,
             red_flags=list(parsed.get("red_flags", [])),
             summary=str(parsed.get("summary", "")),
         )
     except Exception as e:
-        log.error("JSON parse edilemedi (%s): %s | raw=%s", listing.id, e, text[:200])
+        log.error("AI raporu doğrulanamadı (%s): %s | input=%s", listing.id, e, str(parsed)[:200])
         return None
 
 
