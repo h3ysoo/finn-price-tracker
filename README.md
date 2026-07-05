@@ -14,6 +14,7 @@ using **Claude Vision** — analyzing photos and descriptions together.
 - Multi-image analysis: sends up to 8 gallery photos to Claude per listing
 - Claude Vision analysis of photos + description (condition score, red flags, summary)
 - SQLite persistence; `deals` command to surface best historic deals
+- **Price history tracking** — every price change is recorded; `drops` command lists listings whose price went down since the last scrape
 - Colorful terminal output with `rich`
 - UTF-8 + Norwegian character support (æ ø å)
 
@@ -53,6 +54,9 @@ python main.py search "Sony WH-1000XM5" --show-browser
 
 # Show best deals from the local database
 python main.py deals --limit 20
+
+# Show listings whose price dropped since a previous scrape
+python main.py drops
 
 # Verbose logging
 python main.py -v search "Canon EOS R6"

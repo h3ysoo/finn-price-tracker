@@ -34,6 +34,14 @@ CREATE TABLE IF NOT EXISTS listings (
 
 CREATE INDEX IF NOT EXISTS idx_listings_query ON listings(query);
 CREATE INDEX IF NOT EXISTS idx_listings_price_score ON listings(price_score);
+
+CREATE TABLE IF NOT EXISTS price_history (
+    listing_id TEXT NOT NULL,
+    price INTEGER NOT NULL,
+    seen_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_price_history_listing ON price_history(listing_id, seen_at);
 """
 
 
@@ -60,7 +68,11 @@ class Database:
             conn.close()
 
     def save_listings(self, listings: Iterable[Listing]) -> int:
-        """Upsert — aynı (id, query) kaydı üzerine yazar."""
+        """Upsert — aynı (id, query) kaydı üzerine yazar.
+
+        Fiyat değişimleri ayrıca price_history tablosuna eklenir.
+        """
+        listings = list(listings)
         rows = []
         for l in listings:
             rows.append(
@@ -105,7 +117,25 @@ class Database:
                 """,
                 rows,
             )
+            self._record_price_history(conn, listings)
         return len(rows)
+
+    @staticmethod
+    def _record_price_history(conn: sqlite3.Connection, listings: list[Listing]) -> None:
+        """Fiyatı olan her ilan için, son kayıttan farklıysa yeni geçmiş satırı ekle."""
+        for l in listings:
+            if not l.price_nok:
+                continue
+            last = conn.execute(
+                "SELECT price FROM price_history WHERE listing_id = ? "
+                "ORDER BY seen_at DESC LIMIT 1",
+                (l.id,),
+            ).fetchone()
+            if last is None or last["price"] != l.price_nok:
+                conn.execute(
+                    "INSERT INTO price_history (listing_id, price, seen_at) VALUES (?,?,?)",
+                    (l.id, l.price_nok, l.scraped_at.isoformat()),
+                )
 
     def get_by_query(self, query: str) -> list[Listing]:
         with self.connect() as conn:
@@ -128,6 +158,44 @@ class Database:
                 (limit,),
             )
             return [self._row_to_listing(r) for r in cur.fetchall()]
+
+    def get_price_drops(self, limit: int = 10) -> list[tuple[Listing, int]]:
+        """Son taramada fiyatı bir önceki kayda göre düşen ilanlar.
+
+        (Listing, önceki_fiyat) çiftleri döner; en büyük yüzde düşüş önce.
+        """
+        with self.connect() as conn:
+            cur = conn.execute(
+                """
+                WITH ranked AS (
+                    SELECT listing_id, price,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY listing_id ORDER BY seen_at DESC
+                           ) AS rn
+                    FROM price_history
+                ),
+                drops AS (
+                    SELECT cur.listing_id,
+                           cur.price AS current_price,
+                           prev.price AS previous_price
+                    FROM ranked cur
+                    JOIN ranked prev
+                      ON prev.listing_id = cur.listing_id AND prev.rn = 2
+                    WHERE cur.rn = 1 AND cur.price < prev.price
+                )
+                SELECT l.*, d.previous_price
+                FROM drops d
+                JOIN listings l ON l.id = d.listing_id
+                GROUP BY d.listing_id
+                ORDER BY (d.previous_price - d.current_price) * 1.0 / d.previous_price DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+            return [
+                (self._row_to_listing(r), int(r["previous_price"]))
+                for r in cur.fetchall()
+            ]
 
     @staticmethod
     def _row_to_listing(row: sqlite3.Row) -> Listing:
@@ -186,3 +254,7 @@ def get_by_query(query: str) -> list[Listing]:
 
 def get_best_deals(limit: int = 10) -> list[Listing]:
     return _get().get_best_deals(limit)
+
+
+def get_price_drops(limit: int = 10) -> list[tuple[Listing, int]]:
+    return _get().get_price_drops(limit)

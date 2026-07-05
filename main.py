@@ -4,6 +4,7 @@ Kullanım:
     python main.py search "iPhone 13 Pro Max 256GB"
     python main.py deals
     python main.py deals --limit 20
+    python main.py drops
 """
 from __future__ import annotations
 
@@ -203,6 +204,39 @@ def cmd_deals(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_drops(args: argparse.Namespace) -> int:
+    """Fiyat geçmişine göre son taramada fiyatı düşen ilanları göster."""
+    db = Database()
+    drops = db.get_price_drops(limit=args.limit)
+    if not drops:
+        console.print(
+            "[yellow]Fiyatı düşen ilan yok. Aynı aramayı zaman içinde tekrar "
+            "çalıştırdıkça fiyat geçmişi birikir.[/yellow]"
+        )
+        return 1
+
+    tbl = Table(title=f"Fiyatı düşen {len(drops)} ilan", header_style="bold magenta")
+    tbl.add_column("#", justify="right", style="dim", width=3)
+    tbl.add_column("Başlık", overflow="fold", max_width=42)
+    tbl.add_column("Eski", justify="right", style="dim")
+    tbl.add_column("Yeni", justify="right")
+    tbl.add_column("Düşüş", justify="right")
+    tbl.add_column("URL", overflow="fold", max_width=40)
+
+    for i, (l, prev_price) in enumerate(drops, 1):
+        drop_pct = (prev_price - (l.price_nok or 0)) / prev_price * 100
+        tbl.add_row(
+            str(i),
+            l.title,
+            _format_price(prev_price),
+            _format_price(l.price_nok),
+            Text(f"-{drop_pct:.1f}%", style="bold green"),
+            l.url,
+        )
+    console.print(tbl)
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="finn-price-tracker",
@@ -220,6 +254,9 @@ def _build_parser() -> argparse.ArgumentParser:
     dp = sub.add_parser("deals", help="DB'deki en iyi fırsatları listele")
     dp.add_argument("--limit", type=int, default=10)
 
+    rp = sub.add_parser("drops", help="Fiyatı düşen ilanları listele")
+    rp.add_argument("--limit", type=int, default=10)
+
     return p
 
 
@@ -231,6 +268,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return asyncio.run(cmd_search(args))
     if args.cmd == "deals":
         return cmd_deals(args)
+    if args.cmd == "drops":
+        return cmd_drops(args)
     return 1
 
 
