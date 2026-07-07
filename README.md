@@ -92,11 +92,14 @@ pytest
 ## Price Score
 
 ```
-price_score = (listing_price - mean) / mean * 100
+price_score = (listing_price - median) / median * 100
 ```
 
-- `-20%` → 20% below market average (good deal)
-- `+15%` → 15% above market average (overpriced)
+- `-20%` → 20% below the market median (good deal)
+- `+15%` → 15% above the market median (overpriced)
+
+The median is used instead of the mean so a single mislabeled or
+outlier listing can't skew every score.
 
 ## How AI Analysis Works
 

@@ -28,11 +28,14 @@ def _percentile(sorted_values: list[float], p: float) -> float:
 
 def analyze_prices(listings: Iterable[Listing]) -> PriceReport:
     """
-    Listing'lerin fiyatlarını özetle ve her ilana piyasa ortalamasına
+    Listing'lerin fiyatlarını özetle ve her ilana piyasa medyanına
     göre 'price_score' ata.
 
-    price_score = (price - mean) / mean * 100
-    → negatif = ortalamadan ucuz, pozitif = pahalı.
+    price_score = (price - median) / median * 100
+    → negatif = medyandan ucuz, pozitif = pahalı.
+
+    Medyan, ortalamanın aksine tek bir yanlış etiketli pahalı/ucuz
+    ilanın tüm skorları kaydırmasına izin vermez.
     """
     listings = list(listings)
     priced = [l for l in listings if l.price_nok and l.price_nok > 0]
@@ -73,8 +76,8 @@ def analyze_prices(listings: Iterable[Listing]) -> PriceReport:
 
     # Her ilana score ver (fiyatsızlar None kalır)
     for l in listings:
-        if l.price_nok and mean > 0:
-            l.price_score = round((l.price_nok - mean) / mean * 100, 2)
+        if l.price_nok and median > 0:
+            l.price_score = round((l.price_nok - median) / median * 100, 2)
 
     # Ucuzdan pahalıya sırala (None'ları sona at)
     report.listings = sorted(

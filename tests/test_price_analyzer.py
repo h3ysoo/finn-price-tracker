@@ -28,6 +28,17 @@ def test_analyze_prices_scores_and_sorts():
     assert report.listings[3].price_score is None
 
 
+def test_price_score_robust_to_outliers():
+    # Tek bir aykırı fiyat (10 000) skorları kaydırmamalı — medyan bazlı
+    listings = [_listing("a", 100), _listing("b", 110), _listing("c", 120), _listing("out", 10000)]
+    report = analyze_prices(listings)
+    by_id = {l.id: l for l in report.listings}
+    median = 115.0
+    assert by_id["a"].price_score == round((100 - median) / median * 100, 2)
+    # Ortalama bazlı olsaydı 'a' %-60'ın altına düşüp şüpheli sayılırdı
+    assert by_id["a"].price_score > -60
+
+
 def test_analyze_prices_empty():
     report = analyze_prices([_listing("a", None)])
     assert report.count == 0
