@@ -19,5 +19,7 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
+      - name: Install Playwright Chromium
+        run: python -m playwright install --with-deps chromium
       - name: Run tests
         run: pytest -q
