@@ -155,6 +155,34 @@ with col_btn:
     search = st.button("🔍 Ara", use_container_width=True, type="primary")
 
 # ---------------------------------------------------------------------------
+# Fiyatı düşen ilanlar (arama yapılmadığında ana ekranda göster)
+# ---------------------------------------------------------------------------
+
+if not (search and query.strip()):
+    drops = Database().get_price_drops(limit=10)
+    if drops:
+        st.subheader("📉 Fiyatı Düşen İlanlar")
+        st.caption("Önceki taramalara göre fiyatı düşen ve hâlâ yayında olan ilanlar.")
+        drop_rows = []
+        for l, prev_price in drops:
+            pct = (prev_price - (l.price_nok or 0)) / prev_price * 100
+            drop_rows.append({
+                "Başlık": l.title,
+                "Eski Fiyat": _fmt_price(prev_price),
+                "Yeni Fiyat": _fmt_price(l.price_nok),
+                "Düşüş": f"-{pct:.1f}%",
+                "Link": l.url,
+            })
+        st.dataframe(
+            pd.DataFrame(drop_rows),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Link": st.column_config.LinkColumn("Link", display_text="Aç →"),
+            },
+        )
+
+# ---------------------------------------------------------------------------
 # Arama & sonuçlar
 # ---------------------------------------------------------------------------
 
