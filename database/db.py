@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS listings (
     battery_pct INTEGER,
     ai_summary TEXT,
     ai_red_flags TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (id, query)
 );
 
@@ -64,7 +65,11 @@ class Database:
     def _migrate(conn: sqlite3.Connection) -> None:
         """Eski DB dosyalarına sonradan eklenen kolonları tamamla."""
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(listings)")}
-        for col, sql_type in (("composite_score", "REAL"), ("battery_pct", "INTEGER")):
+        for col, sql_type in (
+            ("composite_score", "REAL"),
+            ("battery_pct", "INTEGER"),
+            ("is_active", "INTEGER NOT NULL DEFAULT 1"),
+        ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE listings ADD COLUMN {col} {sql_type}")
 
@@ -124,6 +129,7 @@ class Database:
                     image_urls=excluded.image_urls,
                     description=excluded.description,
                     price_score=excluded.price_score,
+                    is_active=1,
                     composite_score=COALESCE(excluded.composite_score, listings.composite_score),
                     condition_score=COALESCE(excluded.condition_score, listings.condition_score),
                     battery_pct=COALESCE(excluded.battery_pct, listings.battery_pct),
@@ -133,7 +139,22 @@ class Database:
                 rows,
             )
             self._record_price_history(conn, listings)
+            self._mark_missing_inactive(conn, listings)
         return len(rows)
+
+    @staticmethod
+    def _mark_missing_inactive(conn: sqlite3.Connection, listings: list[Listing]) -> None:
+        """Aynı sorgunun taze taramasında görünmeyen ilanlar satılmış/kalkmış demektir."""
+        by_query: dict[str, list[str]] = {}
+        for l in listings:
+            by_query.setdefault(l.query, []).append(l.id)
+        for query, ids in by_query.items():
+            placeholders = ",".join("?" * len(ids))
+            conn.execute(
+                f"UPDATE listings SET is_active = 0 "
+                f"WHERE query = ? AND id NOT IN ({placeholders})",
+                (query, *ids),
+            )
 
     @staticmethod
     def _record_price_history(conn: sqlite3.Connection, listings: list[Listing]) -> None:
@@ -161,12 +182,12 @@ class Database:
             return [self._row_to_listing(r) for r in cur.fetchall()]
 
     def get_best_deals(self, limit: int = 10) -> list[Listing]:
-        """En negatif price_score (en ucuz) ilanlar."""
+        """En negatif price_score (en ucuz) ilanlar — sadece hâlâ yayında olanlar."""
         with self.connect() as conn:
             cur = conn.execute(
                 """
                 SELECT * FROM listings
-                WHERE price_score IS NOT NULL
+                WHERE price_score IS NOT NULL AND is_active = 1
                 ORDER BY price_score ASC
                 LIMIT ?
                 """,
@@ -200,7 +221,7 @@ class Database:
                 )
                 SELECT l.*, d.previous_price
                 FROM drops d
-                JOIN listings l ON l.id = d.listing_id
+                JOIN listings l ON l.id = d.listing_id AND l.is_active = 1
                 GROUP BY d.listing_id
                 ORDER BY (d.previous_price - d.current_price) * 1.0 / d.previous_price DESC
                 LIMIT ?

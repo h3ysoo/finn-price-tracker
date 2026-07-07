@@ -64,6 +64,30 @@ def test_ai_fields_round_trip(tmp_path):
     assert back.ai_report.red_flags == ["Kutu yok"]
 
 
+def test_missing_listings_marked_inactive(tmp_path):
+    db = Database(path=tmp_path / "t.db")
+    db.save_listings([_listing("111", 5000), _listing("222", 7000)])
+    # Yeni taramada 222 yok → satılmış say, deals'te görünmesin
+    db.save_listings([_listing("111", 5000, at=T1)])
+
+    deals = db.get_best_deals()
+    assert [l.id for l in deals] == ["111"]
+
+    # 222 tekrar görünürse yeniden aktifleşmeli
+    db.save_listings([_listing("111", 5000, at=T1), _listing("222", 6800, at=T1)])
+    assert {l.id for l in db.get_best_deals()} == {"111", "222"}
+
+
+def test_drops_exclude_inactive(tmp_path):
+    db = Database(path=tmp_path / "t.db")
+    db.save_listings([_listing("111", 5000)])
+    db.save_listings([_listing("111", 4000, at=T1)])  # fiyat düştü
+    assert len(db.get_price_drops()) == 1
+    # Sonraki taramada ilan kayboldu → drops'ta da görünmemeli
+    db.save_listings([_listing("999", 9000, at=T1)])
+    assert db.get_price_drops() == []
+
+
 def test_upsert_preserves_ai_fields(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([
