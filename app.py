@@ -155,10 +155,28 @@ with col_btn:
     search = st.button("🔍 Ara", use_container_width=True, type="primary")
 
 # ---------------------------------------------------------------------------
-# Fiyatı düşen ilanlar (arama yapılmadığında ana ekranda göster)
+# Arama pipeline'ı — sonuçlar session_state'te tutulur; böylece slider gibi
+# bir widget'a dokunulduğunda oluşan rerun 2-4 dakikalık sonucu silmez
 # ---------------------------------------------------------------------------
 
-if not (search and query.strip()):
+if search and query.strip():
+    with st.spinner(f"'{query}' için Finn.no taranıyor... Tüm ilanların detay sayfaları okunuyor ve AI analizi yapılıyor. Bu 2-4 dakika sürebilir, lütfen bekleyin."):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(run_pipeline, query.strip(), pages, ai_limit, min_price)
+            try:
+                report, top = future.result()
+            except Exception as e:
+                st.error(f"Hata oluştu: {e}")
+                st.stop()
+    st.session_state["results"] = {"query": query.strip(), "report": report, "top": top}
+
+results = st.session_state.get("results")
+
+# ---------------------------------------------------------------------------
+# Fiyatı düşen ilanlar (henüz arama sonucu yokken ana ekranda göster)
+# ---------------------------------------------------------------------------
+
+if results is None:
     drops = Database().get_price_drops(limit=10)
     if drops:
         st.subheader("📉 Fiyatı Düşen İlanlar")
@@ -183,25 +201,19 @@ if not (search and query.strip()):
         )
 
 # ---------------------------------------------------------------------------
-# Arama & sonuçlar
+# Sonuçlar (session_state'ten — rerun'larda da ekranda kalır)
 # ---------------------------------------------------------------------------
 
-if search and query.strip():
-    with st.spinner(f"'{query}' için Finn.no taranıyor... Tüm ilanların detay sayfaları okunuyor ve AI analizi yapılıyor. Bu 2-4 dakika sürebilir, lütfen bekleyin."):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(run_pipeline, query.strip(), pages, ai_limit, min_price)
-            try:
-                report, top = future.result()
-            except Exception as e:
-                st.error(f"Hata oluştu: {e}")
-                st.stop()
+if results is not None:
+    report = results["report"]
+    top = results["top"]
 
     if report is None or report.count == 0:
         st.warning("Hiç uygun ilan bulunamadı. Farklı bir model veya daha düşük minimum fiyat deneyin.")
         st.stop()
 
     # --- İstatistik kartları ---
-    st.subheader("📊 Piyasa Özeti")
+    st.subheader(f"📊 Piyasa Özeti — {results['query']}")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("İlan", report.count)
     c2.metric("Ortalama", _fmt_price(int(report.mean)))
