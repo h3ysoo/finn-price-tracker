@@ -20,7 +20,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from analyzer import analyze_prices, analyze_top_listings, select_candidates
+from analyzer import analyze_prices, analyze_top_listings, score_listings, select_candidates
 from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES, LISTING_MIN_PRICE
 from database import Database
 from models import Listing, PriceReport
@@ -162,6 +162,10 @@ async def cmd_search(args: argparse.Namespace) -> int:
 
             # 3. Fiyat analizi (arama kartlarındaki fiyatlar yeterli)
             report = analyze_prices(listings)
+
+            # Bileşik skor — Streamlit ile aynı: composite_score olmadan
+            # select_candidates yalnızca fiyata bakar ve DB'ye boş skor yazılır
+            score_listings(listings)
 
             # 4. AI adaylarını seç, sadece onların detay sayfasını oku.
             #    Tüm ilanları enrich etmek 10 kat daha yavaştı ve CLI
