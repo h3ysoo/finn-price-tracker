@@ -40,11 +40,10 @@ CREATE INDEX IF NOT EXISTS idx_listings_price_score ON listings(price_score);
 
 CREATE TABLE IF NOT EXISTS price_history (
     listing_id TEXT NOT NULL,
+    query TEXT NOT NULL DEFAULT '',
     price INTEGER NOT NULL,
     seen_at TEXT NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_price_history_listing ON price_history(listing_id, seen_at);
 """
 
 
@@ -72,6 +71,18 @@ class Database:
         ):
             if col not in cols:
                 conn.execute(f"ALTER TABLE listings ADD COLUMN {col} {sql_type}")
+
+        # price_history eskiden sorgudan bağımsızdı; aynı finnkode iki farklı
+        # aramada geçince geçmişler karışıyordu. Eski satırlar query='' kalır.
+        ph_cols = {r["name"] for r in conn.execute("PRAGMA table_info(price_history)")}
+        if "query" not in ph_cols:
+            conn.execute("ALTER TABLE price_history ADD COLUMN query TEXT NOT NULL DEFAULT ''")
+
+        # İndeks 'query' kolonunu kullandığı için migrasyondan sonra kurulmalı
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_price_history_listing_query "
+            "ON price_history(listing_id, query, seen_at)"
+        )
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -163,14 +174,14 @@ class Database:
             if not l.price_nok:
                 continue
             last = conn.execute(
-                "SELECT price FROM price_history WHERE listing_id = ? "
+                "SELECT price FROM price_history WHERE listing_id = ? AND query = ? "
                 "ORDER BY seen_at DESC LIMIT 1",
-                (l.id,),
+                (l.id, l.query),
             ).fetchone()
             if last is None or last["price"] != l.price_nok:
                 conn.execute(
-                    "INSERT INTO price_history (listing_id, price, seen_at) VALUES (?,?,?)",
-                    (l.id, l.price_nok, l.scraped_at.isoformat()),
+                    "INSERT INTO price_history (listing_id, query, price, seen_at) VALUES (?,?,?,?)",
+                    (l.id, l.query, l.price_nok, l.scraped_at.isoformat()),
                 )
 
     def get_by_query(self, query: str) -> list[Listing]:
@@ -204,25 +215,28 @@ class Database:
             cur = conn.execute(
                 """
                 WITH ranked AS (
-                    SELECT listing_id, price,
+                    SELECT listing_id, query, price,
                            ROW_NUMBER() OVER (
-                               PARTITION BY listing_id ORDER BY seen_at DESC
+                               PARTITION BY listing_id, query ORDER BY seen_at DESC
                            ) AS rn
                     FROM price_history
                 ),
                 drops AS (
                     SELECT cur.listing_id,
+                           cur.query,
                            cur.price AS current_price,
                            prev.price AS previous_price
                     FROM ranked cur
                     JOIN ranked prev
-                      ON prev.listing_id = cur.listing_id AND prev.rn = 2
+                      ON prev.listing_id = cur.listing_id
+                     AND prev.query = cur.query
+                     AND prev.rn = 2
                     WHERE cur.rn = 1 AND cur.price < prev.price
                 )
                 SELECT l.*, d.previous_price
                 FROM drops d
-                JOIN listings l ON l.id = d.listing_id AND l.is_active = 1
-                GROUP BY d.listing_id
+                JOIN listings l ON l.id = d.listing_id AND l.query = d.query
+                                AND l.is_active = 1
                 ORDER BY (d.previous_price - d.current_price) * 1.0 / d.previous_price DESC
                 LIMIT ?
                 """,

@@ -43,6 +43,24 @@ def test_get_price_drops(tmp_path):
     assert (listing.id, prev, listing.price_nok) == ("111", 5000, 4000)
 
 
+def test_price_history_is_per_query(tmp_path):
+    db = Database(path=tmp_path / "t.db")
+    # Aynı finnkode iki farklı aramada farklı fiyatla görünsün —
+    # geçmişler karışmamalı ve sahte "fiyat düştü" kaydı oluşmamalı
+    db.save_listings([_listing("111", 5000)])
+    db.save_listings([_listing("111", 4000, at=T1, query="iphone 13 pro")])
+
+    assert db.get_price_drops() == []
+    with db.connect() as conn:
+        rows = [
+            (r["query"], r["price"])
+            for r in conn.execute(
+                "SELECT query, price FROM price_history ORDER BY query"
+            )
+        ]
+    assert rows == [("iphone 13", 5000), ("iphone 13 pro", 4000)]
+
+
 def test_unpriced_listing_not_in_history(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("333", None)])
