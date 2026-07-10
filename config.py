@@ -17,7 +17,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Claude API
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL = "claude-sonnet-4-6"
+CLAUDE_MODEL = "claude-sonnet-5"
 
 # Finn.no
 FINN_BASE_URL = "https://www.finn.no"
