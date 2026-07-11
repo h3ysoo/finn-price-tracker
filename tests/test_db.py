@@ -43,6 +43,16 @@ def test_get_price_drops(tmp_path):
     assert (listing.id, prev, listing.price_nok) == ("111", 5000, 4000)
 
 
+def test_get_price_history(tmp_path):
+    db = Database(path=tmp_path / "t.db")
+    db.save_listings([_listing("111", 5000)])
+    db.save_listings([_listing("111", 4200, at=T1)])
+
+    assert db.get_price_history("111", "iphone 13") == [(T0, 5000), (T1, 4200)]
+    # Farklı sorgunun geçmişi boş
+    assert db.get_price_history("111", "baska arama") == []
+
+
 def test_price_history_is_per_query(tmp_path):
     db = Database(path=tmp_path / "t.db")
     # Aynı finnkode iki farklı aramada farklı fiyatla görünsün —

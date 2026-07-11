@@ -252,6 +252,19 @@ class Database:
                 for r in cur.fetchall()
             ]
 
+    def get_price_history(self, listing_id: str, query: str) -> list[tuple[datetime, int]]:
+        """Bir ilanın fiyat geçmişi — (görülme zamanı, fiyat), eskiden yeniye."""
+        with self.connect() as conn:
+            cur = conn.execute(
+                "SELECT seen_at, price FROM price_history "
+                "WHERE listing_id = ? AND query = ? ORDER BY seen_at",
+                (listing_id, query),
+            )
+            return [
+                (datetime.fromisoformat(r["seen_at"]), int(r["price"]))
+                for r in cur.fetchall()
+            ]
+
     @staticmethod
     def _row_to_listing(row: sqlite3.Row) -> Listing:
         ai_report: Optional[AIReport] = None
@@ -315,3 +328,7 @@ def get_best_deals(limit: int = 10) -> list[Listing]:
 
 def get_price_drops(limit: int = 10) -> list[tuple[Listing, int]]:
     return _get().get_price_drops(limit)
+
+
+def get_price_history(listing_id: str, query: str) -> list[tuple[datetime, int]]:
+    return _get().get_price_history(listing_id, query)

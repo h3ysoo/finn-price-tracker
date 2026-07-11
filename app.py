@@ -311,6 +311,7 @@ if results is not None:
         st.subheader("🤖 AI Analiz Detayları")
         st.caption(f"En ucuz {len(analyzed)} ilan Claude Vision ile değerlendirildi.")
 
+        db = Database()
         for l in analyzed:
             r = l.ai_report
             score = r.condition_score
@@ -344,6 +345,13 @@ if results is not None:
                         st.metric("Piyasa Farkı", f"{l.price_score:+.1f}%")
 
                 st.markdown(f"🔗 [İlana git →]({l.url})")
+
+                # Fiyat geçmişi — aynı arama tekrar tarandıkça birikir
+                history = db.get_price_history(l.id, l.query)
+                if len(history) >= 2:
+                    st.markdown("**📈 Fiyat Geçmişi**")
+                    hist_df = pd.DataFrame(history, columns=["Tarih", "Fiyat (kr)"])
+                    st.line_chart(hist_df.set_index("Tarih"))
 
                 # Görseller (varsa)
                 if l.image_urls:
