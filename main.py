@@ -141,12 +141,14 @@ async def cmd_search(args: argparse.Namespace) -> int:
 
     report = None
     top: list = []
+    scan_complete = False
 
     try:
         async with FinnScraper(headless=not args.show_browser) as scraper:
             # 1. Arama sayfalarını tara
             with console.status("[cyan]Finn.no taranıyor..."):
                 listings = await scraper.search(query, pages=pages)
+            scan_complete = scraper.last_search_complete
 
             if not listings:
                 console.print("[yellow]Hiç ilan bulunamadı.[/yellow]")
@@ -192,9 +194,9 @@ async def cmd_search(args: argparse.Namespace) -> int:
     _render_listings(report.listings[: max(20, ai_limit)], title="İlanlar (ucuzdan pahalıya)")
     _render_ai_details(top)
 
-    # DB'ye yaz
+    # DB'ye yaz — kısmi taramada eksik ilanları "satıldı" sayma
     db = Database()
-    saved = db.save_listings(report.listings)
+    saved = db.save_listings(report.listings, prune_missing=scan_complete)
     console.print(f"[green]✓[/green] {saved} kayıt DB'ye yazıldı: {db.path}")
     return 0
 

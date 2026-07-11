@@ -96,6 +96,15 @@ def test_missing_listings_marked_inactive(tmp_path):
     assert {l.id for l in db.get_best_deals()} == {"111", "222"}
 
 
+def test_partial_scan_does_not_prune(tmp_path):
+    db = Database(path=tmp_path / "t.db")
+    db.save_listings([_listing("111", 5000), _listing("222", 7000)])
+    # Kısmi tarama (sonuçların sonuna ulaşılmadı): 222 görünmedi ama
+    # muhtemelen sadece taranmayan sayfalarda — pasife çekilmemeli
+    db.save_listings([_listing("111", 5000, at=T1)], prune_missing=False)
+    assert {l.id for l in db.get_best_deals()} == {"111", "222"}
+
+
 def test_drops_exclude_inactive(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("111", 5000)])

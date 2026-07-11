@@ -62,6 +62,10 @@ class FinnScraper:
         self._browser: Optional[Browser] = None
         self._ctx: Optional[BrowserContext] = None
         self._pw = None
+        # Son arama sonuçların SONUNA ulaştı mı? (sayfa limiti dolmadan
+        # yeni ilan gelmeyen bir sayfa görüldüyse True). Kısmi taramalarda
+        # DB'deki ilanları yanlışlıkla "satıldı" işaretlememek için kullanılır.
+        self.last_search_complete: bool = False
 
     async def __aenter__(self) -> "FinnScraper":
         self._pw = await async_playwright().start()
@@ -355,6 +359,7 @@ class FinnScraper:
 
         all_listings: list[Listing] = []
         seen_ids: set[str] = set()
+        self.last_search_complete = False
         page = await self._new_page()
 
         try:
@@ -380,7 +385,8 @@ class FinnScraper:
                 log.info("Sayfa %d → %d yeni ilan", page_num, new_count)
 
                 if new_count == 0 and page_num > 1:
-                    # yeni bir şey yoksa sonlandır
+                    # yeni bir şey yoksa sonuçların sonuna gelinmiştir
+                    self.last_search_complete = True
                     break
 
                 # Rate limit

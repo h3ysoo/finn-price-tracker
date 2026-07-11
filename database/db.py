@@ -94,10 +94,14 @@ class Database:
         finally:
             conn.close()
 
-    def save_listings(self, listings: Iterable[Listing]) -> int:
+    def save_listings(self, listings: Iterable[Listing], prune_missing: bool = True) -> int:
         """Upsert — aynı (id, query) kaydı üzerine yazar.
 
         Fiyat değişimleri ayrıca price_history tablosuna eklenir.
+        prune_missing=False ise taramada görünmeyen ilanlar pasife çekilmez.
+        Kısmi taramalarda (sayfa limiti dolduğu için sonuçların sonuna
+        ulaşmayan) hâlâ yayında olan ilanları yanlışlıkla "satıldı"
+        işaretlememek için False geçilmeli.
         """
         listings = list(listings)
         rows = []
@@ -150,7 +154,8 @@ class Database:
                 rows,
             )
             self._record_price_history(conn, listings)
-            self._mark_missing_inactive(conn, listings)
+            if prune_missing:
+                self._mark_missing_inactive(conn, listings)
         return len(rows)
 
     @staticmethod
@@ -296,8 +301,8 @@ def init_db() -> Database:
     return _get()
 
 
-def save_listings(listings: Iterable[Listing]) -> int:
-    return _get().save_listings(listings)
+def save_listings(listings: Iterable[Listing], prune_missing: bool = True) -> int:
+    return _get().save_listings(listings, prune_missing=prune_missing)
 
 
 def get_by_query(query: str) -> list[Listing]:
