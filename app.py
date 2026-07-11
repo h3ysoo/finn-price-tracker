@@ -70,6 +70,7 @@ async def _pipeline(
     pages: int,
     ai_limit: int,
     min_price: int,
+    deep_scan: bool,
 ) -> tuple[Optional[PriceReport], list[Listing]]:
     async with FinnScraper(headless=True) as scraper:
         listings = await scraper.search(query, pages=pages)
@@ -80,8 +81,10 @@ async def _pipeline(
         if not listings:
             return None, []
 
-        # Tüm ilanların detay sayfasına gir (paralel)
-        await scraper.enrich_all(listings, concurrency=3)
+        # Derin taramada tüm ilanların detay sayfasına gir (paralel).
+        # Hızlı modda yalnızca AI adaylarınınki okunur — ~10x daha hızlı.
+        if deep_scan:
+            await scraper.enrich_all(listings, concurrency=3)
 
         # Fiyat analizi (price_score hesapla)
         report = analyze_prices(listings)
@@ -92,17 +95,24 @@ async def _pipeline(
         # En yüksek skorlu adayları AI ile analiz et
         top = select_candidates(report, limit=ai_limit)
         if top:
+            if not deep_scan:
+                await scraper.enrich_all(top, concurrency=3)
+                # Adayların tam açıklaması geldi — skorları tazele
+                score_listings(listings)
             await analyze_top_listings(top, limit=ai_limit)
 
-        # Sonuçları kalıcılaştır — fiyat geçmişi de burada birikir
-        Database().save_listings(report.listings)
+        # Sonuçları kalıcılaştır — fiyat geçmişi de burada birikir.
+        # Kısmi taramada görünmeyen ilanlar "satıldı" sayılmaz.
+        Database().save_listings(
+            report.listings, prune_missing=scraper.last_search_complete
+        )
 
         return report, top
 
 
-def run_pipeline(query, pages, ai_limit, min_price):
+def run_pipeline(query, pages, ai_limit, min_price, deep_scan):
     # asyncio.run Windows'ta da varsayılan olarak ProactorEventLoop kullanır (3.8+)
-    return asyncio.run(_pipeline(query, pages, ai_limit, min_price))
+    return asyncio.run(_pipeline(query, pages, ai_limit, min_price, deep_scan))
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +139,12 @@ with st.sidebar:
                          help="En ucuz N ilan Claude ile detaylı analiz edilir.")
     min_price = st.number_input("Minimum fiyat (kr)", 100, 10000, LISTING_MIN_PRICE, step=100,
                                 help="Bu fiyatın altındaki ilanlar (aksesuar, kutu vb.) filtrelenir.")
+    deep_scan = st.checkbox(
+        "Derin tarama",
+        value=False,
+        help="Tüm ilanların detay sayfasını okur — skorlar daha isabetli olur ama "
+             "2-4 dakika sürer. Kapalıyken yalnızca AI adaylarının detayı okunur (~30-60 sn).",
+    )
 
     st.divider()
     st.markdown("**Nasıl çalışır?**")
@@ -160,9 +176,10 @@ with col_btn:
 # ---------------------------------------------------------------------------
 
 if search and query.strip():
-    with st.spinner(f"'{query}' için Finn.no taranıyor... Tüm ilanların detay sayfaları okunuyor ve AI analizi yapılıyor. Bu 2-4 dakika sürebilir, lütfen bekleyin."):
+    duration = "2-4 dakika" if deep_scan else "30-60 saniye"
+    with st.spinner(f"'{query}' için Finn.no taranıyor ve AI analizi yapılıyor... Bu yaklaşık {duration} sürebilir, lütfen bekleyin."):
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(run_pipeline, query.strip(), pages, ai_limit, min_price)
+            future = ex.submit(run_pipeline, query.strip(), pages, ai_limit, min_price, deep_scan)
             try:
                 report, top = future.result()
             except Exception as e:
