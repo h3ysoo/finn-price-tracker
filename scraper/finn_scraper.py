@@ -90,6 +90,23 @@ class FinnScraper:
         return await self._ctx.new_page()
 
     @staticmethod
+    async def _goto_with_retry(page: Page, url: str, attempts: int = 3) -> bool:
+        """Sayfayı yükle; geçici hata/timeout'ta üstel bekleme ile tekrar dene."""
+        for attempt in range(1, attempts + 1):
+            try:
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                return True
+            except Exception as e:
+                if attempt == attempts:
+                    log.warning("Sayfa %d denemede yüklenemedi (%s): %s", attempts, url, e)
+                    return False
+                delay = 2 ** (attempt - 1) + random.uniform(0, 0.5)
+                log.debug("goto başarısız (%d/%d), %.1fs sonra tekrar: %s",
+                          attempt, attempts, delay, e)
+                await asyncio.sleep(delay)
+        return False
+
+    @staticmethod
     def _build_url(query: str, page: int) -> str:
         params = {"q": query, "sort": "PUBLISHED_DESC"}
         if page > 1:
@@ -204,7 +221,8 @@ class FinnScraper:
         """İlan detay sayfasına gir, tam açıklamayı ve ek bilgileri çek."""
         page = await self._new_page()
         try:
-            await page.goto(listing.url, wait_until="domcontentloaded", timeout=30000)
+            if not await self._goto_with_retry(page, listing.url):
+                return
             await page.wait_for_timeout(1000)
 
             # --- Tam açıklama (beskrivelse) ---
@@ -366,12 +384,9 @@ class FinnScraper:
             for page_num in range(1, pages + 1):
                 url = self._build_url(query, page_num)
                 log.info("Sayfa %d: %s", page_num, url)
-                try:
-                    await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                    await page.wait_for_timeout(1500)  # lazy render için
-                except Exception as e:
-                    log.error("Sayfa %d yüklenemedi: %s", page_num, e)
+                if not await self._goto_with_retry(page, url):
                     continue
+                await page.wait_for_timeout(1500)  # lazy render için
 
                 items = await self._parse_listings(page, query)
                 new_count = 0
