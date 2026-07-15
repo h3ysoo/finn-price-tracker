@@ -53,6 +53,22 @@ def test_get_price_history(tmp_path):
     assert db.get_price_history("111", "baska arama") == []
 
 
+def test_get_listing_histories(tmp_path):
+    db = Database(path=tmp_path / "t.db")
+    # Aynı finnkode iki sorguda izleniyor; üçüncü bir ilan alakasız
+    db.save_listings([_listing("111", 5000), _listing("777", 9000)])
+    db.save_listings([_listing("111", 4200, at=T1)])
+    db.save_listings([_listing("111", 4300, at=T1, query="iphone 13 pro")])
+
+    entries = db.get_listing_histories("111")
+    assert [(l.query, hist) for l, hist in entries] == [
+        ("iphone 13", [(T0, 5000), (T1, 4200)]),
+        ("iphone 13 pro", [(T1, 4300)]),
+    ]
+    assert entries[0][0].title == "iPhone 13 (111)"
+    assert db.get_listing_histories("yok-boyle-ilan") == []
+
+
 def test_price_history_is_per_query(tmp_path):
     db = Database(path=tmp_path / "t.db")
     # Aynı finnkode iki farklı aramada farklı fiyatla görünsün —

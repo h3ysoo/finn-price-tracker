@@ -5,6 +5,7 @@ Kullanım:
     python main.py deals
     python main.py deals --limit 20
     python main.py drops
+    python main.py history 400111222
 """
 from __future__ import annotations
 
@@ -244,6 +245,45 @@ def cmd_drops(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_history(args: argparse.Namespace) -> int:
+    """Bir ilanın kayıtlı fiyat noktalarını sorgu bazında göster."""
+    db = Database()
+    entries = db.get_listing_histories(args.id)
+    if not entries:
+        console.print(
+            f"[yellow]'{args.id}' için fiyat geçmişi yok. finnkode'u kontrol et "
+            "veya önce 'search' çalıştır.[/yellow]"
+        )
+        return 1
+
+    for listing, history in entries:
+        tbl = Table(header_style="bold magenta")
+        tbl.add_column("Tarih")
+        tbl.add_column("Fiyat", justify="right")
+        tbl.add_column("Değişim", justify="right")
+
+        prev: Optional[int] = None
+        for seen_at, price in history:
+            if prev is None:
+                change = Text("—", style="dim")
+            else:
+                pct = (price - prev) / prev * 100
+                style = "bold green" if pct < 0 else "bold red" if pct > 0 else "dim"
+                change = Text(f"{pct:+.1f}%", style=style)
+            tbl.add_row(seen_at.strftime("%Y-%m-%d %H:%M"), _format_price(price), change)
+            prev = price
+
+        console.print(
+            Panel(
+                tbl,
+                title=f"[bold]{listing.title}[/bold] — sorgu: '{listing.query}'",
+                subtitle=f"[dim]{listing.url}[/dim]",
+                border_style="cyan",
+            )
+        )
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="finn-price-tracker",
@@ -264,6 +304,9 @@ def _build_parser() -> argparse.ArgumentParser:
     rp = sub.add_parser("drops", help="Fiyatı düşen ilanları listele")
     rp.add_argument("--limit", type=int, default=10)
 
+    hp = sub.add_parser("history", help="Bir ilanın kayıtlı fiyat geçmişini göster")
+    hp.add_argument("id", help="Finn ilan kodu (finnkode), ör: 400111222")
+
     return p
 
 
@@ -277,6 +320,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_deals(args)
     if args.cmd == "drops":
         return cmd_drops(args)
+    if args.cmd == "history":
+        return cmd_history(args)
     return 1
 
 

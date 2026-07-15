@@ -265,6 +265,26 @@ class Database:
                 for r in cur.fetchall()
             ]
 
+    def get_listing_histories(
+        self, listing_id: str
+    ) -> list[tuple[Listing, list[tuple[datetime, int]]]]:
+        """Bir finnkode'un izlendiği her sorgu için (ilan, fiyat geçmişi) döndür.
+
+        Aynı ilan birden fazla aramada takip edilmiş olabilir; geçmişi
+        olmayan girdiler atlanır.
+        """
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM listings WHERE id = ? ORDER BY query", (listing_id,)
+            ).fetchall()
+        out: list[tuple[Listing, list[tuple[datetime, int]]]] = []
+        for r in rows:
+            listing = self._row_to_listing(r)
+            history = self.get_price_history(listing_id, listing.query)
+            if history:
+                out.append((listing, history))
+        return out
+
     @staticmethod
     def _row_to_listing(row: sqlite3.Row) -> Listing:
         ai_report: Optional[AIReport] = None
@@ -332,3 +352,7 @@ def get_price_drops(limit: int = 10) -> list[tuple[Listing, int]]:
 
 def get_price_history(listing_id: str, query: str) -> list[tuple[datetime, int]]:
     return _get().get_price_history(listing_id, query)
+
+
+def get_listing_histories(listing_id: str) -> list[tuple[Listing, list[tuple[datetime, int]]]]:
+    return _get().get_listing_histories(listing_id)

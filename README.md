@@ -58,6 +58,9 @@ python main.py deals --limit 20
 # Show listings whose price dropped since a previous scrape
 python main.py drops
 
+# Show the recorded price history of a single listing (by finnkode)
+python main.py history 400111222
+
 # Verbose logging
 python main.py -v search "Canon EOS R6"
 ```
