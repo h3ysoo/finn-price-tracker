@@ -53,6 +53,23 @@ def test_get_price_history(tmp_path):
     assert db.get_price_history("111", "baska arama") == []
 
 
+def test_deals_and_drops_query_filter(tmp_path):
+    db = Database(path=tmp_path / "t.db")
+    db.save_listings([_listing("111", 5000)])
+    db.save_listings([_listing("222", 8000, query="macbook air")])
+    db.save_listings([_listing("111", 4500, at=T1)])
+    db.save_listings([_listing("222", 7000, at=T1, query="macbook air")])
+
+    # Filtresiz: iki sorgudan da sonuç gelir
+    assert {l.id for l in db.get_best_deals()} == {"111", "222"}
+    assert {l.id for l, _ in db.get_price_drops()} == {"111", "222"}
+
+    # Filtreli: sadece ilgili sorgu
+    assert [l.id for l in db.get_best_deals(query="macbook air")] == ["222"]
+    assert [l.id for l, _ in db.get_price_drops(query="iphone 13")] == ["111"]
+    assert db.get_price_drops(query="olmayan arama") == []
+
+
 def test_get_listing_histories(tmp_path):
     db = Database(path=tmp_path / "t.db")
     # Aynı finnkode iki sorguda izleniyor; üçüncü bir ilan alakasız

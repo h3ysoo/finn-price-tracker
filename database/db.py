@@ -197,24 +197,32 @@ class Database:
             )
             return [self._row_to_listing(r) for r in cur.fetchall()]
 
-    def get_best_deals(self, limit: int = 10) -> list[Listing]:
-        """En negatif price_score (en ucuz) ilanlar — sadece hâlâ yayında olanlar."""
+    def get_best_deals(self, limit: int = 10, query: Optional[str] = None) -> list[Listing]:
+        """En negatif price_score (en ucuz) ilanlar — sadece hâlâ yayında olanlar.
+
+        query verilirse sonuçlar o aramayla sınırlanır.
+        """
+        sql = (
+            "SELECT * FROM listings "
+            "WHERE price_score IS NOT NULL AND is_active = 1"
+        )
+        params: list = []
+        if query is not None:
+            sql += " AND query = ?"
+            params.append(query)
+        sql += " ORDER BY price_score ASC LIMIT ?"
+        params.append(limit)
         with self.connect() as conn:
-            cur = conn.execute(
-                """
-                SELECT * FROM listings
-                WHERE price_score IS NOT NULL AND is_active = 1
-                ORDER BY price_score ASC
-                LIMIT ?
-                """,
-                (limit,),
-            )
+            cur = conn.execute(sql, params)
             return [self._row_to_listing(r) for r in cur.fetchall()]
 
-    def get_price_drops(self, limit: int = 10) -> list[tuple[Listing, int]]:
+    def get_price_drops(
+        self, limit: int = 10, query: Optional[str] = None
+    ) -> list[tuple[Listing, int]]:
         """Son taramada fiyatı bir önceki kayda göre düşen ilanlar.
 
         (Listing, önceki_fiyat) çiftleri döner; en büyük yüzde düşüş önce.
+        query verilirse sonuçlar o aramayla sınırlanır.
         """
         with self.connect() as conn:
             cur = conn.execute(
@@ -225,6 +233,7 @@ class Database:
                                PARTITION BY listing_id, query ORDER BY seen_at DESC
                            ) AS rn
                     FROM price_history
+                    WHERE (:query IS NULL OR query = :query)
                 ),
                 drops AS (
                     SELECT cur.listing_id,
@@ -243,9 +252,9 @@ class Database:
                 JOIN listings l ON l.id = d.listing_id AND l.query = d.query
                                 AND l.is_active = 1
                 ORDER BY (d.previous_price - d.current_price) * 1.0 / d.previous_price DESC
-                LIMIT ?
+                LIMIT :limit
                 """,
-                (limit,),
+                {"query": query, "limit": limit},
             )
             return [
                 (self._row_to_listing(r), int(r["previous_price"]))
@@ -342,12 +351,12 @@ def get_by_query(query: str) -> list[Listing]:
     return _get().get_by_query(query)
 
 
-def get_best_deals(limit: int = 10) -> list[Listing]:
-    return _get().get_best_deals(limit)
+def get_best_deals(limit: int = 10, query: Optional[str] = None) -> list[Listing]:
+    return _get().get_best_deals(limit, query=query)
 
 
-def get_price_drops(limit: int = 10) -> list[tuple[Listing, int]]:
-    return _get().get_price_drops(limit)
+def get_price_drops(limit: int = 10, query: Optional[str] = None) -> list[tuple[Listing, int]]:
+    return _get().get_price_drops(limit, query=query)
 
 
 def get_price_history(listing_id: str, query: str) -> list[tuple[datetime, int]]:

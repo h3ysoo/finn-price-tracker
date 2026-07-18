@@ -204,18 +204,19 @@ async def cmd_search(args: argparse.Namespace) -> int:
 
 def cmd_deals(args: argparse.Namespace) -> int:
     db = Database()
-    deals = db.get_best_deals(limit=args.limit)
+    deals = db.get_best_deals(limit=args.limit, query=args.query)
     if not deals:
         console.print("[yellow]DB'de kayıt yok. Önce 'search' çalıştır.[/yellow]")
         return 1
-    _render_listings(deals, title=f"En iyi {len(deals)} fırsat (tüm sorgulardan)")
+    scope = f"'{args.query}' araması" if args.query else "tüm sorgular"
+    _render_listings(deals, title=f"En iyi {len(deals)} fırsat ({scope})")
     return 0
 
 
 def cmd_drops(args: argparse.Namespace) -> int:
     """Fiyat geçmişine göre son taramada fiyatı düşen ilanları göster."""
     db = Database()
-    drops = db.get_price_drops(limit=args.limit)
+    drops = db.get_price_drops(limit=args.limit, query=args.query)
     if not drops:
         console.print(
             "[yellow]Fiyatı düşen ilan yok. Aynı aramayı zaman içinde tekrar "
@@ -300,9 +301,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     dp = sub.add_parser("deals", help="DB'deki en iyi fırsatları listele")
     dp.add_argument("--limit", type=int, default=10)
+    dp.add_argument("--query", help="Sonuçları tek bir aramayla sınırla")
 
     rp = sub.add_parser("drops", help="Fiyatı düşen ilanları listele")
     rp.add_argument("--limit", type=int, default=10)
+    rp.add_argument("--query", help="Sonuçları tek bir aramayla sınırla")
 
     hp = sub.add_parser("history", help="Bir ilanın kayıtlı fiyat geçmişini göster")
     hp.add_argument("id", help="Finn ilan kodu (finnkode), ör: 400111222")
