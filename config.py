@@ -28,6 +28,8 @@ REQUEST_DELAY_MAX = 2.0
 
 # AI analizi — maliyet için ilk N ilan
 AI_ANALYSIS_LIMIT = 5
+# Aynı anda en fazla kaç Claude isteği (görsel-ağır istekler rate limit'e takılmasın)
+AI_CONCURRENCY = 3
 
 # Filtreleme — bu fiyatın altındaki ilanlar aksesuar/kutu olarak sayılır ve çıkarılır
 LISTING_MIN_PRICE = 500

@@ -9,7 +9,13 @@ from typing import Optional
 import aiohttp
 from anthropic import AsyncAnthropic
 
-from config import AI_ANALYSIS_LIMIT, ANTHROPIC_API_KEY, CLAUDE_MODEL, USER_AGENT
+from config import (
+    AI_ANALYSIS_LIMIT,
+    AI_CONCURRENCY,
+    ANTHROPIC_API_KEY,
+    CLAUDE_MODEL,
+    USER_AGENT,
+)
 from models import AIReport, Listing
 
 log = logging.getLogger(__name__)
@@ -174,19 +180,26 @@ async def analyze_listing_ai(
 async def analyze_top_listings(
     listings: list[Listing],
     limit: int = AI_ANALYSIS_LIMIT,
+    client: Optional[AsyncAnthropic] = None,
 ) -> list[Listing]:
-    """İlk `limit` ilan için AI analizini paralel çalıştır ve listingleri güncelle."""
+    """İlk `limit` ilan için AI analizini sınırlı paralellikle çalıştır.
+
+    En fazla AI_CONCURRENCY istek aynı anda uçar; hepsini birden
+    göndermek görsel-ağır isteklerde rate limit'e takılabiliyor.
+    """
     if not listings:
         return listings
     if not ANTHROPIC_API_KEY:
         log.warning("ANTHROPIC_API_KEY yok — AI analizi atlanıyor.")
         return listings
 
-    client = AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    client = client or AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
     targets = listings[:limit]
+    semaphore = asyncio.Semaphore(AI_CONCURRENCY)
 
     async def _run(l: Listing) -> None:
-        l.ai_report = await analyze_listing_ai(l, client=client)
+        async with semaphore:
+            l.ai_report = await analyze_listing_ai(l, client=client)
 
     await asyncio.gather(*(_run(l) for l in targets), return_exceptions=True)
     return listings
