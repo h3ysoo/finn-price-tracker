@@ -47,6 +47,62 @@ def _fmt_price(v: Optional[int]) -> str:
     return f"{v:,} kr".replace(",", " ")
 
 
+def _render_listings_table(listings: list[Listing]) -> None:
+    """İlanları composite skora göre sıralı bir dataframe olarak çiz."""
+    sorted_listings = sorted(listings, key=lambda x: x.composite_score or 0, reverse=True)
+
+    rows = []
+    for l in sorted_listings:
+        battery = None
+        if l.ai_report and l.ai_report.battery_pct:
+            battery = l.ai_report.battery_pct
+        else:
+            battery = _extract_battery(l.title + " " + l.description)
+
+        storage = _extract_storage(l.title)
+
+        city = "—"
+        if l.location:
+            city = l.location.split(",")[0].strip()
+
+        cscore = l.composite_score
+        if cscore is not None:
+            if cscore >= 70:
+                score_label = f"🟢 {cscore}"
+            elif cscore >= 50:
+                score_label = f"🟡 {cscore}"
+            else:
+                score_label = f"🔴 {cscore}"
+        else:
+            score_label = "—"
+
+        rows.append({
+            "Skor": score_label,
+            "📍 Şehir": city,
+            "Başlık": l.title,
+            "Fiyat (kr)": l.price_nok or 0,
+            "Piyasa Farkı": f"{l.price_score:+.1f}%" if l.price_score is not None else "—",
+            "Depolama": storage or "—",
+            "Batarya": f"{battery}%" if battery else "—",
+            "AI Durum": f"{l.ai_report.condition_score}/10" if l.ai_report else "—",
+            "Link": l.url,
+        })
+
+    st.dataframe(
+        pd.DataFrame(rows),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Link": st.column_config.LinkColumn("Link", display_text="Aç →"),
+            "Fiyat (kr)": st.column_config.NumberColumn(format="%d kr"),
+            "Skor": st.column_config.TextColumn("⭐ Skor", width="small"),
+            "📍 Şehir": st.column_config.TextColumn(width="small"),
+        },
+        column_order=["Skor", "📍 Şehir", "Başlık", "Fiyat (kr)", "Piyasa Farkı",
+                      "Depolama", "Batarya", "AI Durum", "Link"],
+    )
+
+
 def _score_color(score: Optional[float]) -> str:
     if score is None:
         return "gray"
@@ -217,6 +273,34 @@ if results is None:
             },
         )
 
+    # --- Kayıtlı aramalar: tarama yapmadan önceki sonuçları görüntüle ---
+    saved_queries = Database().get_queries()
+    if saved_queries:
+        st.subheader("🗂 Kayıtlı Aramalar")
+        st.caption("Daha önce taranan sonuçları yeniden tarama yapmadan görüntüle.")
+        options = {
+            f"{q}  —  {n} ilan, son tarama {dt:%d.%m.%Y %H:%M}": q
+            for q, n, dt in saved_queries
+        }
+        col_sel, col_show = st.columns([5, 1])
+        with col_sel:
+            picked = st.selectbox(
+                "Kayıtlı arama", list(options.keys()), label_visibility="collapsed"
+            )
+        with col_show:
+            show_saved = st.button("📂 Göster", use_container_width=True)
+        if show_saved and picked:
+            st.session_state["saved_view"] = options[picked]
+
+        saved_query = st.session_state.get("saved_view")
+        if saved_query:
+            listings = Database().get_by_query(saved_query, active_only=True)
+            if listings:
+                st.subheader(f"📋 Kayıtlı Sonuçlar — {saved_query}")
+                _render_listings_table(listings)
+            else:
+                st.info("Bu aramanın aktif ilanı kalmamış.")
+
 # ---------------------------------------------------------------------------
 # Sonuçlar (session_state'ten — rerun'larda da ekranda kalır)
 # ---------------------------------------------------------------------------
@@ -243,65 +327,7 @@ if results is not None:
 
     # --- İlanlar tablosu ---
     st.subheader("📋 Tüm İlanlar")
-
-    # Tabloyu composite_score'a göre sırala (yüksekten düşüğe)
-    sorted_listings = sorted(
-        report.listings,
-        key=lambda x: x.composite_score or 0,
-        reverse=True,
-    )
-
-    rows = []
-    for l in sorted_listings:
-        battery = None
-        if l.ai_report and l.ai_report.battery_pct:
-            battery = l.ai_report.battery_pct
-        else:
-            battery = _extract_battery(l.title + " " + l.description)
-
-        storage = _extract_storage(l.title)
-
-        city = "—"
-        if l.location:
-            city = l.location.split(",")[0].strip()
-
-        cscore = l.composite_score
-        if cscore is not None:
-            if cscore >= 70:
-                score_label = f"🟢 {cscore}"
-            elif cscore >= 50:
-                score_label = f"🟡 {cscore}"
-            else:
-                score_label = f"🔴 {cscore}"
-        else:
-            score_label = "—"
-
-        rows.append({
-            "Skor": score_label,
-            "📍 Şehir": city,
-            "Başlık": l.title,
-            "Fiyat (kr)": l.price_nok or 0,
-            "Piyasa Farkı": f"{l.price_score:+.1f}%" if l.price_score is not None else "—",
-            "Depolama": storage or "—",
-            "Batarya": f"{battery}%" if battery else "—",
-            "AI Durum": f"{l.ai_report.condition_score}/10" if l.ai_report else "—",
-            "Link": l.url,
-        })
-
-    df = pd.DataFrame(rows)
-
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Link": st.column_config.LinkColumn("Link", display_text="Aç →"),
-            "Fiyat (kr)": st.column_config.NumberColumn(format="%d kr"),
-            "Skor": st.column_config.TextColumn("⭐ Skor", width="small"),
-            "📍 Şehir": st.column_config.TextColumn(width="small"),
-        },
-        column_order=["Skor", "📍 Şehir", "Başlık", "Fiyat (kr)", "Piyasa Farkı", "Depolama", "Batarya", "AI Durum", "Link"],
-    )
+    _render_listings_table(report.listings)
 
     st.divider()
 

@@ -53,6 +53,21 @@ def test_get_price_history(tmp_path):
     assert db.get_price_history("111", "baska arama") == []
 
 
+def test_get_queries_and_active_only(tmp_path):
+    db = Database(path=tmp_path / "t.db")
+    db.save_listings([_listing("111", 5000), _listing("222", 7000)])
+    db.save_listings([_listing("333", 8000, at=T1, query="macbook air")])
+    # iphone sorgusunun yeni taramasında 222 kayboldu → pasif
+    db.save_listings([_listing("111", 5000, at=T1)])
+
+    queries = db.get_queries()
+    assert [(q, n) for q, n, _ in queries] == [("iphone 13", 1), ("macbook air", 1)]
+
+    # active_only pasif ilanı gizler, varsayılan hepsini döndürür
+    assert {l.id for l in db.get_by_query("iphone 13")} == {"111", "222"}
+    assert [l.id for l in db.get_by_query("iphone 13", active_only=True)] == ["111"]
+
+
 def test_deals_and_drops_query_filter(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("111", 5000)])

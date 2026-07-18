@@ -189,13 +189,31 @@ class Database:
                     (l.id, l.query, l.price_nok, l.scraped_at.isoformat()),
                 )
 
-    def get_by_query(self, query: str) -> list[Listing]:
+    def get_by_query(self, query: str, active_only: bool = False) -> list[Listing]:
+        sql = "SELECT * FROM listings WHERE query = ?"
+        if active_only:
+            sql += " AND is_active = 1"
+        sql += " ORDER BY price_score ASC"
+        with self.connect() as conn:
+            cur = conn.execute(sql, (query,))
+            return [self._row_to_listing(r) for r in cur.fetchall()]
+
+    def get_queries(self) -> list[tuple[str, int, datetime]]:
+        """Kayıtlı aramaların özeti — (sorgu, aktif ilan sayısı, son tarama zamanı)."""
         with self.connect() as conn:
             cur = conn.execute(
-                "SELECT * FROM listings WHERE query = ? ORDER BY price_score ASC",
-                (query,),
+                """
+                SELECT query, COUNT(*) AS n, MAX(scraped_at) AS last_seen
+                FROM listings
+                WHERE is_active = 1
+                GROUP BY query
+                ORDER BY last_seen DESC
+                """
             )
-            return [self._row_to_listing(r) for r in cur.fetchall()]
+            return [
+                (r["query"], int(r["n"]), datetime.fromisoformat(r["last_seen"]))
+                for r in cur.fetchall()
+            ]
 
     def get_best_deals(self, limit: int = 10, query: Optional[str] = None) -> list[Listing]:
         """En negatif price_score (en ucuz) ilanlar — sadece hâlâ yayında olanlar.
@@ -347,8 +365,12 @@ def save_listings(listings: Iterable[Listing], prune_missing: bool = True) -> in
     return _get().save_listings(listings, prune_missing=prune_missing)
 
 
-def get_by_query(query: str) -> list[Listing]:
-    return _get().get_by_query(query)
+def get_by_query(query: str, active_only: bool = False) -> list[Listing]:
+    return _get().get_by_query(query, active_only=active_only)
+
+
+def get_queries() -> list[tuple[str, int, datetime]]:
+    return _get().get_queries()
 
 
 def get_best_deals(limit: int = 10, query: Optional[str] = None) -> list[Listing]:
