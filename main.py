@@ -11,8 +11,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import csv
+import json
 import logging
 import sys
+from pathlib import Path
 from typing import Optional
 
 from rich.console import Console
@@ -285,6 +288,58 @@ def cmd_history(args: argparse.Namespace) -> int:
     return 0
 
 
+_EXPORT_FIELDS = [
+    "id", "query", "title", "price_nok", "price_score", "composite_score",
+    "condition_score", "battery_pct", "location", "url", "scraped_at",
+]
+
+
+def _listing_to_export_row(l: Listing) -> dict:
+    return {
+        "id": l.id,
+        "query": l.query,
+        "title": l.title,
+        "price_nok": l.price_nok,
+        "price_score": l.price_score,
+        "composite_score": l.composite_score,
+        "condition_score": l.ai_report.condition_score if l.ai_report else None,
+        "battery_pct": l.ai_report.battery_pct if l.ai_report else None,
+        "location": l.location,
+        "url": l.url,
+        "scraped_at": l.scraped_at.isoformat(),
+    }
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    """Bir sorgunun kayıtlı ilanlarını CSV/JSON olarak dışa aktar."""
+    db = Database()
+    listings = db.get_by_query(args.query)
+    if not listings:
+        console.print(f"[yellow]'{args.query}' için kayıt yok. Önce 'search' çalıştır.[/yellow]")
+        return 1
+
+    rows = [_listing_to_export_row(l) for l in listings]
+
+    if args.output:
+        out_path = Path(args.output)
+        with out_path.open("w", newline="", encoding="utf-8") as f:
+            _write_export(f, rows, args.format)
+        console.print(f"[green]✓[/green] {len(rows)} ilan yazıldı: {out_path}")
+    else:
+        _write_export(sys.stdout, rows, args.format)
+    return 0
+
+
+def _write_export(f, rows: list[dict], fmt: str) -> None:
+    if fmt == "json":
+        json.dump(rows, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    else:
+        writer = csv.DictWriter(f, fieldnames=_EXPORT_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="finn-price-tracker",
@@ -310,6 +365,11 @@ def _build_parser() -> argparse.ArgumentParser:
     hp = sub.add_parser("history", help="Bir ilanın kayıtlı fiyat geçmişini göster")
     hp.add_argument("id", help="Finn ilan kodu (finnkode), ör: 400111222")
 
+    ep = sub.add_parser("export", help="Bir sorgunun kayıtlı ilanlarını dışa aktar")
+    ep.add_argument("query", help="Dışa aktarılacak arama, ör: 'iPhone 13 Pro Max 256GB'")
+    ep.add_argument("--format", choices=["csv", "json"], default="csv")
+    ep.add_argument("-o", "--output", help="Çıktı dosyası (verilmezse stdout)")
+
     return p
 
 
@@ -325,6 +385,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_drops(args)
     if args.cmd == "history":
         return cmd_history(args)
+    if args.cmd == "export":
+        return cmd_export(args)
     return 1
 
 

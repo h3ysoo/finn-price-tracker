@@ -61,6 +61,10 @@ python main.py drops
 # Show the recorded price history of a single listing (by finnkode)
 python main.py history 400111222
 
+# Export stored listings of a query as CSV or JSON
+python main.py export "iPhone 13 Pro Max 256GB" -o listings.csv
+python main.py export "iPhone 13 Pro Max 256GB" --format json
+
 # Verbose logging
 python main.py -v search "Canon EOS R6"
 ```
