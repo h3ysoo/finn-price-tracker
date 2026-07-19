@@ -120,3 +120,12 @@ outlier listing can't skew every score.
 - If Finn.no changes its page structure, CSS selectors in `scraper/finn_scraper.py` may need updating.
 - AI analysis incurs API costs; by default only the 5 cheapest listings are analyzed (`--ai-limit` to change).
 - Do not lower the rate limit aggressively to stay within Finn.no's Terms of Service.
+
+## Disclaimer
+
+This project is intended for **personal and educational use only**. It is not
+affiliated with or endorsed by Finn.no. Scraping may be subject to Finn.no's
+Terms of Service and applicable law — you are responsible for how you use this
+tool. The built-in rate limiting exists to keep requests modest and respectful;
+please keep it that way. Scraped data is stored only locally and no listing
+data is redistributed by this project.
