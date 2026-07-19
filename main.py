@@ -1,6 +1,6 @@
-"""Finn Price Tracker — CLI girişi.
+"""Finn Price Tracker — CLI entry point.
 
-Kullanım:
+Usage:
     python main.py search "iPhone 13 Pro Max 256GB"
     python main.py deals
     python main.py deals --limit 20
@@ -63,21 +63,21 @@ def _score_text(score: Optional[float]) -> Text:
 
 
 def _render_report(report: PriceReport) -> None:
-    """Fiyat raporunu rich panel + tablo olarak yazdır."""
+    """Print the price report as a rich panel + table."""
     stats = Table.grid(padding=(0, 2))
     stats.add_column(style="cyan", justify="right")
     stats.add_column()
-    stats.add_row("İlan sayısı:", str(report.count))
-    stats.add_row("Ortalama:", _format_price(report.mean))
-    stats.add_row("Medyan:", _format_price(report.median))
-    stats.add_row("Std sapma:", _format_price(report.std))
+    stats.add_row("Listings:", str(report.count))
+    stats.add_row("Mean:", _format_price(report.mean))
+    stats.add_row("Median:", _format_price(report.median))
+    stats.add_row("Std dev:", _format_price(report.std))
     stats.add_row("Min / Max:", f"{_format_price(report.min_price)} / {_format_price(report.max_price)}")
     stats.add_row("25% / 75%:", f"{_format_price(report.p25)} / {_format_price(report.p75)}")
 
     console.print(
         Panel(
             stats,
-            title=f"[bold]Fiyat Analizi — '{report.query}'[/bold]",
+            title=f"[bold]Price Analysis — '{report.query}'[/bold]",
             border_style="cyan",
         )
     )
@@ -86,11 +86,11 @@ def _render_report(report: PriceReport) -> None:
 def _render_listings(listings: list[Listing], title: str) -> None:
     tbl = Table(title=title, show_lines=False, header_style="bold magenta")
     tbl.add_column("#", justify="right", style="dim", width=3)
-    tbl.add_column("Başlık", overflow="fold", max_width=42)
-    tbl.add_column("Fiyat", justify="right")
-    tbl.add_column("Skor", justify="right")
-    tbl.add_column("Konum", overflow="fold", max_width=20)
-    tbl.add_column("Durum", justify="center")
+    tbl.add_column("Title", overflow="fold", max_width=42)
+    tbl.add_column("Price", justify="right")
+    tbl.add_column("Score", justify="right")
+    tbl.add_column("Location", overflow="fold", max_width=20)
+    tbl.add_column("Condition", justify="center")
     tbl.add_column("URL", overflow="fold", max_width=40)
 
     for i, l in enumerate(listings, 1):
@@ -112,36 +112,36 @@ def _render_listings(listings: list[Listing], title: str) -> None:
 
 
 def _render_ai_details(listings: list[Listing]) -> None:
-    """AI analizi yapılmış ilanlar için detay panelleri."""
+    """Detail panels for listings that received an AI analysis."""
     analyzed = [l for l in listings if l.ai_report]
     if not analyzed:
         return
 
-    console.print("\n[bold]AI Analiz Detayları[/bold]")
+    console.print("\n[bold]AI Analysis Details[/bold]")
     for l in analyzed:
         r = l.ai_report
         assert r is not None
-        flags = "\n".join(f"  ⚠ {f}" for f in r.red_flags) or "  (yok)"
+        flags = "\n".join(f"  ⚠ {f}" for f in r.red_flags) or "  (none)"
         body = (
-            f"[bold]Başlık:[/bold] {l.title}\n"
-            f"[bold]Fiyat:[/bold] {_format_price(l.price_nok)}  "
-            f"[bold]Skor:[/bold] {r.condition_score}/10\n"
-            f"[bold]Özet:[/bold] {r.summary}\n"
-            f"[bold]Kırmızı bayraklar:[/bold]\n{flags}\n"
+            f"[bold]Title:[/bold] {l.title}\n"
+            f"[bold]Price:[/bold] {_format_price(l.price_nok)}  "
+            f"[bold]Score:[/bold] {r.condition_score}/10\n"
+            f"[bold]Summary:[/bold] {r.summary}\n"
+            f"[bold]Red flags:[/bold]\n{flags}\n"
             f"[dim]{l.url}[/dim]"
         )
         color = "green" if r.condition_score >= 8 else "yellow" if r.condition_score >= 5 else "red"
         console.print(Panel(body, border_style=color))
 
 
-# --- Komutlar -----------------------------------------------------------------
+# --- Commands ----------------------------------------------------------------
 
 async def cmd_search(args: argparse.Namespace) -> int:
     query: str = args.query
     pages: int = args.pages
     ai_limit: int = args.ai_limit
 
-    console.rule(f"[bold]Finn.no araması: '{query}'[/bold]")
+    console.rule(f"[bold]Finn.no search: '{query}'[/bold]")
 
     report = None
     top: list = []
@@ -149,40 +149,40 @@ async def cmd_search(args: argparse.Namespace) -> int:
 
     try:
         async with FinnScraper(headless=not args.show_browser) as scraper:
-            # 1. Arama sayfalarını tara
-            with console.status("[cyan]Finn.no taranıyor..."):
+            # 1. Scrape search result pages
+            with console.status("[cyan]Scanning Finn.no..."):
                 listings = await scraper.search(query, pages=pages)
             scan_complete = scraper.last_search_complete
 
             if not listings:
-                console.print("[yellow]Hiç ilan bulunamadı.[/yellow]")
+                console.print("[yellow]No listings found.[/yellow]")
                 return 1
 
-            console.print(f"[green]✓[/green] {len(listings)} ilan çekildi.")
+            console.print(f"[green]✓[/green] Fetched {len(listings)} listings.")
 
-            # 2. Alakasız ilanları filtrele
+            # 2. Filter out irrelevant listings
             listings = filter_listings(listings, min_price=LISTING_MIN_PRICE)
             if not listings:
-                console.print("[yellow]Filtre sonrası ilan kalmadı.[/yellow]")
+                console.print("[yellow]No listings remain after filtering.[/yellow]")
                 return 1
 
-            # 3. Fiyat analizi (arama kartlarındaki fiyatlar yeterli)
+            # 3. Price analysis (prices from search cards are enough)
             report = analyze_prices(listings)
 
-            # Bileşik skor — Streamlit ile aynı: composite_score olmadan
-            # select_candidates yalnızca fiyata bakar ve DB'ye boş skor yazılır
+            # Composite score — same as Streamlit: without composite_score,
+            # select_candidates only looks at price and the DB stores an empty score
             score_listings(listings)
 
-            # 4. AI adaylarını seç, sadece onların detay sayfasını oku.
-            #    Tüm ilanları enrich etmek 10 kat daha yavaştı ve CLI
-            #    akışında detaylar yalnızca AI analizi için kullanılıyor.
+            # 4. Pick AI candidates and fetch detail pages for those only.
+            #    Enriching every listing was 10x slower and, in the CLI flow,
+            #    detail pages are only used for AI analysis.
             top = select_candidates(report, limit=ai_limit)
             if top:
-                with console.status(f"[cyan]{len(top)} aday ilanın detay sayfası okunuyor..."):
+                with console.status(f"[cyan]Reading detail pages for {len(top)} candidate listings..."):
                     await scraper.enrich_all(top, concurrency=3)
 
     except Exception as e:
-        console.print(f"[red]Scraper hatası:[/red] {e}")
+        console.print(f"[red]Scraper error:[/red] {e}")
         return 2
 
     if report is None:
@@ -190,18 +190,18 @@ async def cmd_search(args: argparse.Namespace) -> int:
 
     _render_report(report)
 
-    # 5. AI analizi (detayı çekilmiş en ucuz N)
+    # 5. AI analysis (cheapest N with fetched detail pages)
     if ai_limit > 0 and top:
-        with console.status(f"[cyan]{len(top)} ilan AI ile analiz ediliyor..."):
+        with console.status(f"[cyan]Running AI analysis on {len(top)} listings..."):
             await analyze_top_listings(top, limit=ai_limit)
 
-    _render_listings(report.listings[: max(20, ai_limit)], title="İlanlar (ucuzdan pahalıya)")
+    _render_listings(report.listings[: max(20, ai_limit)], title="Listings (cheapest first)")
     _render_ai_details(top)
 
-    # DB'ye yaz — kısmi taramada eksik ilanları "satıldı" sayma
+    # Persist to DB — don't mark missing listings as sold on a partial scan
     db = Database()
     saved = db.save_listings(report.listings, prune_missing=scan_complete)
-    console.print(f"[green]✓[/green] {saved} kayıt DB'ye yazıldı: {db.path}")
+    console.print(f"[green]✓[/green] {saved} records written to DB: {db.path}")
     return 0
 
 
@@ -209,30 +209,30 @@ def cmd_deals(args: argparse.Namespace) -> int:
     db = Database()
     deals = db.get_best_deals(limit=args.limit, query=args.query)
     if not deals:
-        console.print("[yellow]DB'de kayıt yok. Önce 'search' çalıştır.[/yellow]")
+        console.print("[yellow]No records in DB. Run 'search' first.[/yellow]")
         return 1
-    scope = f"'{args.query}' araması" if args.query else "tüm sorgular"
-    _render_listings(deals, title=f"En iyi {len(deals)} fırsat ({scope})")
+    scope = f"'{args.query}' search" if args.query else "all queries"
+    _render_listings(deals, title=f"Top {len(deals)} deals ({scope})")
     return 0
 
 
 def cmd_drops(args: argparse.Namespace) -> int:
-    """Fiyat geçmişine göre son taramada fiyatı düşen ilanları göster."""
+    """Show listings whose price dropped in the latest scan versus history."""
     db = Database()
     drops = db.get_price_drops(limit=args.limit, query=args.query)
     if not drops:
         console.print(
-            "[yellow]Fiyatı düşen ilan yok. Aynı aramayı zaman içinde tekrar "
-            "çalıştırdıkça fiyat geçmişi birikir.[/yellow]"
+            "[yellow]No price drops. Price history accumulates as you re-run the "
+            "same search over time.[/yellow]"
         )
         return 1
 
-    tbl = Table(title=f"Fiyatı düşen {len(drops)} ilan", header_style="bold magenta")
+    tbl = Table(title=f"{len(drops)} price drops", header_style="bold magenta")
     tbl.add_column("#", justify="right", style="dim", width=3)
-    tbl.add_column("Başlık", overflow="fold", max_width=42)
-    tbl.add_column("Eski", justify="right", style="dim")
-    tbl.add_column("Yeni", justify="right")
-    tbl.add_column("Düşüş", justify="right")
+    tbl.add_column("Title", overflow="fold", max_width=42)
+    tbl.add_column("Old", justify="right", style="dim")
+    tbl.add_column("New", justify="right")
+    tbl.add_column("Drop", justify="right")
     tbl.add_column("URL", overflow="fold", max_width=40)
 
     for i, (l, prev_price) in enumerate(drops, 1):
@@ -250,21 +250,21 @@ def cmd_drops(args: argparse.Namespace) -> int:
 
 
 def cmd_history(args: argparse.Namespace) -> int:
-    """Bir ilanın kayıtlı fiyat noktalarını sorgu bazında göster."""
+    """Show recorded price points for a listing, grouped by query."""
     db = Database()
     entries = db.get_listing_histories(args.id)
     if not entries:
         console.print(
-            f"[yellow]'{args.id}' için fiyat geçmişi yok. finnkode'u kontrol et "
-            "veya önce 'search' çalıştır.[/yellow]"
+            f"[yellow]No price history for '{args.id}'. Double-check the finnkode "
+            "or run 'search' first.[/yellow]"
         )
         return 1
 
     for listing, history in entries:
         tbl = Table(header_style="bold magenta")
-        tbl.add_column("Tarih")
-        tbl.add_column("Fiyat", justify="right")
-        tbl.add_column("Değişim", justify="right")
+        tbl.add_column("Date")
+        tbl.add_column("Price", justify="right")
+        tbl.add_column("Change", justify="right")
 
         prev: Optional[int] = None
         for seen_at, price in history:
@@ -280,7 +280,7 @@ def cmd_history(args: argparse.Namespace) -> int:
         console.print(
             Panel(
                 tbl,
-                title=f"[bold]{listing.title}[/bold] — sorgu: '{listing.query}'",
+                title=f"[bold]{listing.title}[/bold] — query: '{listing.query}'",
                 subtitle=f"[dim]{listing.url}[/dim]",
                 border_style="cyan",
             )
@@ -311,11 +311,11 @@ def _listing_to_export_row(l: Listing) -> dict:
 
 
 def cmd_export(args: argparse.Namespace) -> int:
-    """Bir sorgunun kayıtlı ilanlarını CSV/JSON olarak dışa aktar."""
+    """Export stored listings for a query as CSV or JSON."""
     db = Database()
     listings = db.get_by_query(args.query)
     if not listings:
-        console.print(f"[yellow]'{args.query}' için kayıt yok. Önce 'search' çalıştır.[/yellow]")
+        console.print(f"[yellow]No records for '{args.query}'. Run 'search' first.[/yellow]")
         return 1
 
     rows = [_listing_to_export_row(l) for l in listings]
@@ -324,7 +324,7 @@ def cmd_export(args: argparse.Namespace) -> int:
         out_path = Path(args.output)
         with out_path.open("w", newline="", encoding="utf-8") as f:
             _write_export(f, rows, args.format)
-        console.print(f"[green]✓[/green] {len(rows)} ilan yazıldı: {out_path}")
+        console.print(f"[green]✓[/green] {len(rows)} listings written to: {out_path}")
     else:
         _write_export(sys.stdout, rows, args.format)
     return 0
@@ -343,32 +343,32 @@ def _write_export(f, rows: list[dict], fmt: str) -> None:
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="finn-price-tracker",
-        description="Finn.no 2. el fiyat analiz aracı.",
+        description="Finn.no second-hand price analysis tool.",
     )
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sp = sub.add_parser("search", help="Finn.no'da arama yap ve analiz et")
-    sp.add_argument("query", help="Arama terimi, ör: 'iPhone 13 Pro Max 256GB'")
+    sp = sub.add_parser("search", help="Search Finn.no and analyze results")
+    sp.add_argument("query", help="Search term, e.g. 'iPhone 13 Pro Max 256GB'")
     sp.add_argument("--pages", type=int, default=DEFAULT_PAGES)
     sp.add_argument("--ai-limit", type=int, default=AI_ANALYSIS_LIMIT)
-    sp.add_argument("--show-browser", action="store_true", help="Headless olmadan çalıştır")
+    sp.add_argument("--show-browser", action="store_true", help="Run without headless mode")
 
-    dp = sub.add_parser("deals", help="DB'deki en iyi fırsatları listele")
+    dp = sub.add_parser("deals", help="List the best deals from the DB")
     dp.add_argument("--limit", type=int, default=10)
-    dp.add_argument("--query", help="Sonuçları tek bir aramayla sınırla")
+    dp.add_argument("--query", help="Restrict results to a single search")
 
-    rp = sub.add_parser("drops", help="Fiyatı düşen ilanları listele")
+    rp = sub.add_parser("drops", help="List listings whose price dropped")
     rp.add_argument("--limit", type=int, default=10)
-    rp.add_argument("--query", help="Sonuçları tek bir aramayla sınırla")
+    rp.add_argument("--query", help="Restrict results to a single search")
 
-    hp = sub.add_parser("history", help="Bir ilanın kayıtlı fiyat geçmişini göster")
-    hp.add_argument("id", help="Finn ilan kodu (finnkode), ör: 400111222")
+    hp = sub.add_parser("history", help="Show recorded price history for a listing")
+    hp.add_argument("id", help="Finn listing code (finnkode), e.g. 400111222")
 
-    ep = sub.add_parser("export", help="Bir sorgunun kayıtlı ilanlarını dışa aktar")
-    ep.add_argument("query", help="Dışa aktarılacak arama, ör: 'iPhone 13 Pro Max 256GB'")
+    ep = sub.add_parser("export", help="Export stored listings for a query")
+    ep.add_argument("query", help="Search to export, e.g. 'iPhone 13 Pro Max 256GB'")
     ep.add_argument("--format", choices=["csv", "json"], default="csv")
-    ep.add_argument("-o", "--output", help="Çıktı dosyası (verilmezse stdout)")
+    ep.add_argument("-o", "--output", help="Output file (defaults to stdout)")
 
     return p
 

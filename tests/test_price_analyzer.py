@@ -21,7 +21,7 @@ def test_analyze_prices_scores_and_sorts():
     assert report.count == 3
     assert report.mean == 200
     assert report.median == 200
-    # En ucuz önce, fiyatsız en sona
+    # Cheapest first, unpriced at the end
     assert [l.id for l in report.listings] == ["a", "b", "c", "d"]
     assert report.listings[0].price_score == -50.0
     assert report.listings[2].price_score == 50.0
@@ -29,13 +29,13 @@ def test_analyze_prices_scores_and_sorts():
 
 
 def test_price_score_robust_to_outliers():
-    # Tek bir aykırı fiyat (10 000) skorları kaydırmamalı — medyan bazlı
+    # A single outlier price (10 000) must not shift the scores — we use the median
     listings = [_listing("a", 100), _listing("b", 110), _listing("c", 120), _listing("out", 10000)]
     report = analyze_prices(listings)
     by_id = {l.id: l for l in report.listings}
     median = 115.0
     assert by_id["a"].price_score == round((100 - median) / median * 100, 2)
-    # Ortalama bazlı olsaydı 'a' %-60'ın altına düşüp şüpheli sayılırdı
+    # If we used the mean, 'a' would fall below -60% and get flagged as suspicious
     assert by_id["a"].price_score > -60
 
 
@@ -46,7 +46,7 @@ def test_analyze_prices_empty():
 
 
 def test_select_candidates_skips_suspiciously_cheap():
-    # Ortalamanın %60'ından fazla altı şüpheli sayılır ve atlanır
+    # Anything more than 60% below the average is flagged as suspicious and skipped
     listings = [_listing("cheap", 10), _listing("a", 100), _listing("b", 110), _listing("c", 120)]
     report = analyze_prices(listings)
     top = select_candidates(report, limit=2)

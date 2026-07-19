@@ -1,4 +1,4 @@
-"""Finn.no bap/forsale ilanlarını playwright ile çeker."""
+"""Fetch Finn.no bap/forsale listings via playwright."""
 from __future__ import annotations
 
 import asyncio
@@ -22,20 +22,20 @@ from models import Listing
 
 log = logging.getLogger(__name__)
 
-# Finn fiyatları Norveç formatında: "1 200 kr", "kr 1.200" vs.
+# Finn prices use Norwegian formatting: "1 200 kr", "kr 1.200", etc.
 _PRICE_RE = re.compile(r"(\d[\d\s\.]*)")
 
-# Finn CDN boyut segmentleri — küçükten büyüğe öncelik sırası
+# Finn CDN size segments — small to large, ordered by priority
 _FINN_SIZE_RE = re.compile(r"/dynamic/\d+x\d+[a-z]*/")
 
 
 def _upgrade_finn_image_url(url: str) -> str:
-    """Finn CDN URL'sindeki küçük boyutu 960x720 ile değiştir."""
+    """Replace the small size segment in a Finn CDN URL with 960x720."""
     return _FINN_SIZE_RE.sub("/dynamic/960x720c/", url, count=1)
 
 
 def _parse_price(text: Optional[str]) -> Optional[int]:
-    """'1 299 kr' gibi bir metinden int NOK üret."""
+    """Parse an int NOK price from text like '1 299 kr'."""
     if not text:
         return None
     m = _PRICE_RE.search(text)
@@ -49,22 +49,23 @@ def _parse_price(text: Optional[str]) -> Optional[int]:
 
 
 def _extract_id_from_url(url: str) -> str:
-    """Finn URL'sinden finnkode / id çek."""
+    """Extract the finnkode / id from a Finn URL."""
     m = re.search(r"finnkode=(\d+)", url) or re.search(r"/(\d{6,})(?:[/?]|$)", url)
     return m.group(1) if m else url
 
 
 class FinnScraper:
-    """Asenkron Finn.no scraper."""
+    """Async Finn.no scraper."""
 
     def __init__(self, headless: bool = True):
         self.headless = headless
         self._browser: Optional[Browser] = None
         self._ctx: Optional[BrowserContext] = None
         self._pw = None
-        # Son arama sonuçların SONUNA ulaştı mı? (sayfa limiti dolmadan
-        # yeni ilan gelmeyen bir sayfa görüldüyse True). Kısmi taramalarda
-        # DB'deki ilanları yanlışlıkla "satıldı" işaretlememek için kullanılır.
+        # Did the last search reach the END of the result set? (True if a
+        # page produced no new listings before the page limit was reached.)
+        # Used so partial scans don't mistakenly mark existing DB listings
+        # as "sold".
         self.last_search_complete: bool = False
 
     async def __aenter__(self) -> "FinnScraper":
@@ -91,17 +92,17 @@ class FinnScraper:
 
     @staticmethod
     async def _goto_with_retry(page: Page, url: str, attempts: int = 3) -> bool:
-        """Sayfayı yükle; geçici hata/timeout'ta üstel bekleme ile tekrar dene."""
+        """Load the page; on transient error/timeout retry with exponential backoff."""
         for attempt in range(1, attempts + 1):
             try:
                 await page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 return True
             except Exception as e:
                 if attempt == attempts:
-                    log.warning("Sayfa %d denemede yüklenemedi (%s): %s", attempts, url, e)
+                    log.warning("Page did not load after %d attempts (%s): %s", attempts, url, e)
                     return False
                 delay = 2 ** (attempt - 1) + random.uniform(0, 0.5)
-                log.debug("goto başarısız (%d/%d), %.1fs sonra tekrar: %s",
+                log.debug("goto failed (%d/%d), retrying in %.1fs: %s",
                           attempt, attempts, delay, e)
                 await asyncio.sleep(delay)
         return False
@@ -114,8 +115,8 @@ class FinnScraper:
         return f"{FINN_BASE_URL}{FINN_SEARCH_PATH}?{urlencode(params)}"
 
     async def _parse_listings(self, page: Page, query: str) -> list[Listing]:
-        """Arama sayfasındaki ilan kartlarını ayıkla."""
-        # Cookie popup'ı varsa kapatmaya çalış (bloke etmesin diye best-effort)
+        """Extract listing cards from a search results page."""
+        # Try to dismiss the cookie popup if present (best-effort, so it doesn't block us)
         try:
             btn = await page.query_selector("button:has-text('Godta')")
             if btn:
@@ -123,8 +124,8 @@ class FinnScraper:
         except Exception:
             pass
 
-        # Finn'in arama sonuçları article veya a[data-testid=...] olarak
-        # render edilebiliyor. İkisini de dene.
+        # Finn's search results render as either <article> or a[data-testid=...].
+        # Try both.
         cards = await page.query_selector_all("article")
         if not cards:
             cards = await page.query_selector_all(
@@ -138,13 +139,13 @@ class FinnScraper:
                 if listing:
                     out.append(listing)
             except Exception as e:
-                log.warning("Kart parse edilemedi: %s", e)
+                log.warning("Card parse failed: %s", e)
                 continue
         return out
 
     async def _extract_card(self, card, query: str) -> Optional[Listing]:
-        """Tek bir ilan kartından Listing oluştur."""
-        # Başlık + URL
+        """Build a Listing from a single card element."""
+        # Title + URL
         link = await card.query_selector(
             "a[href*='/recommerce/forsale/item/'], "
             "a[href*='/bap/'], "
@@ -161,20 +162,20 @@ class FinnScraper:
         url = urljoin(FINN_BASE_URL, href)
         listing_id = _extract_id_from_url(url)
 
-        # Başlık
+        # Title
         title_el = await card.query_selector("h2, h3, [data-testid='ad-title']")
         title = (await title_el.inner_text()).strip() if title_el else ""
         if not title:
             title = (await link.inner_text()).strip()
 
-        # Fiyat
+        # Price
         price_el = await card.query_selector(
             "[data-testid*='price'], .t3, span:has-text('kr')"
         )
         price_text = await price_el.inner_text() if price_el else None
         price = _parse_price(price_text)
 
-        # Konum — birden fazla selector dene
+        # Location — try several selectors
         location: Optional[str] = None
         for loc_sel in [
             "[data-testid='location']",
@@ -186,12 +187,12 @@ class FinnScraper:
             loc_el = await card.query_selector(loc_sel)
             if loc_el:
                 txt = (await loc_el.inner_text()).strip()
-                # Fiyat veya tarih değil, gerçek konum mu?
+                # Is this an actual location, not a price or date?
                 if txt and not any(c.isdigit() for c in txt[:3]) and len(txt) > 2:
                     location = txt.split("\n")[0].strip()
                     break
 
-        # Görsel
+        # Image
         img_el = await card.query_selector("img")
         image_urls: list[str] = []
         if img_el:
@@ -203,7 +204,7 @@ class FinnScraper:
             if src:
                 image_urls.append(src)
 
-        # Açıklama snippet'i (bazen kartta olur)
+        # Description snippet (sometimes on the card)
         desc_el = await card.query_selector(
             "[data-testid='description'], p"
         )
@@ -224,16 +225,16 @@ class FinnScraper:
         )
 
     async def fetch_detail(self, listing: Listing) -> None:
-        """İlan detay sayfasına gir, tam açıklamayı ve ek bilgileri çek."""
+        """Open a listing's detail page and pull the full description and extras."""
         page = await self._new_page()
         try:
             if not await self._goto_with_retry(page, listing.url):
                 return
             await page.wait_for_timeout(1000)
 
-            # --- Tam açıklama (beskrivelse) ---
+            # --- Full description (beskrivelse) ---
             description = ""
-            # Finn.no farklı sayfa yapılarında farklı selector kullanıyor
+            # Finn.no uses different selectors across page layouts
             for sel in [
                 "[data-testid='description']",
                 "[data-testid='ad-description-text']",
@@ -248,12 +249,12 @@ class FinnScraper:
                         description = text
                         break
 
-            # "Beskrivelse" başlığının altındaki metni de dene
+            # Fallback: try the text under the "Beskrivelse" heading
             if not description:
                 try:
                     heading = await page.query_selector("h2:text('Beskrivelse'), h3:text('Beskrivelse')")
                     if heading:
-                        # Başlığın hemen arkasındaki sibling/parent içeriği al
+                        # Grab the sibling/parent content right after the heading
                         description = await page.evaluate(
                             """el => {
                                 const parent = el.closest('section') || el.parentElement;
@@ -267,13 +268,13 @@ class FinnScraper:
             if description:
                 listing.description = description
 
-            # --- Konum (detay sayfasından daha güvenilir) ---
+            # --- Location (more reliable from the detail page) ---
             if not listing.location:
                 try:
                     for loc_sel in [
                         "[data-testid='object-address']",
                         "span[data-testid='location']",
-                        # "Sted" (yer) etiketi — Finn yapılandırılmış veri satırı
+                        # "Sted" (place) label — Finn's structured-data row
                         "dt:text('Sted') + dd",
                         "th:text('Sted') ~ td",
                     ]:
@@ -284,7 +285,7 @@ class FinnScraper:
                                 listing.location = txt.split("\n")[0].strip()
                                 break
 
-                    # Hâlâ bulunamadıysa sayfanın tamamından "Sted" satırını ara
+                    # If still not found, scan the whole page for a "Sted" row
                     if not listing.location:
                         listing.location = await page.evaluate("""() => {
                             const labels = [...document.querySelectorAll('dt, th, span, div')];
@@ -299,18 +300,18 @@ class FinnScraper:
                 except Exception:
                     pass
 
-            # --- Galeri görselleri (yüksek çözünürlük, tümü) ---
+            # --- Gallery images (high resolution, all of them) ---
             try:
                 seen_urls: set[str] = set(listing.image_urls)
                 gallery_urls: list[str] = []
 
-                # Önce thumbnail'leri tıkla / lazy-load tetikle
+                # Trigger lazy-load by scrolling first
                 await page.evaluate(
                     "window.scrollBy(0, 400)"
                 )
                 await page.wait_for_timeout(600)
 
-                # Finn CDN görselleri — birden fazla selector dene
+                # Finn CDN images — try several selectors
                 img_els = await page.query_selector_all(
                     "img[src*='finncdn.no'], img[src*='finn-images'], "
                     "img[data-src*='finncdn.no'], img[data-src*='finn-images']"
@@ -323,44 +324,44 @@ class FinnScraper:
                     )
                     if not src or src in seen_urls:
                         continue
-                    # Küçük thumbnail ise (w<200) atla
+                    # Skip tiny thumbnails (w<200)
                     try:
                         w = await img_el.evaluate("el => el.naturalWidth || el.width || 0")
                         if w and int(w) < 100:
                             continue
                     except Exception:
                         pass
-                    # Finn CDN boyut parametresini yüksek çözünürlüğe yükselt
+                    # Upgrade Finn CDN size parameter to high resolution
                     src = _upgrade_finn_image_url(src)
                     seen_urls.add(src)
                     gallery_urls.append(src)
 
                 if gallery_urls:
-                    # Mevcut listenin başına ekle (liste sayfasındaki küçük görseli sona at)
+                    # Prepend to the existing list (push the tiny listing-card image to the end)
                     listing.image_urls = gallery_urls[:8]
 
             except Exception as e:
-                log.debug("Görsel çekme hatası: %s", e)
+                log.debug("Image fetch error: %s", e)
 
         except Exception as e:
-            log.warning("Detay sayfası çekilemedi (%s): %s", listing.id, e)
+            log.warning("Detail page could not be fetched (%s): %s", listing.id, e)
         finally:
             await page.close()
 
     async def enrich_listings(self, listings: list[Listing], limit: int) -> None:
-        """İlk `limit` ilanın detay sayfasını çek (sıralı, rate-limit'li)."""
+        """Fetch detail pages for the first `limit` listings (sequential, rate-limited)."""
         targets = listings[:limit]
-        log.info("Detay sayfaları çekiliyor (%d ilan)...", len(targets))
+        log.info("Fetching detail pages (%d listings)...", len(targets))
         for listing in targets:
             await self.fetch_detail(listing)
             await asyncio.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
 
     async def enrich_all(self, listings: list[Listing], concurrency: int = 3) -> None:
-        """Tüm ilanların detay sayfasını paralel çek.
+        """Fetch detail pages for all listings in parallel.
 
-        `concurrency` adet sayfa aynı anda açılır; bu sayede hız/礼儀 dengesi korunur.
+        Up to `concurrency` pages are open at once, balancing speed and politeness.
         """
-        log.info("Tüm ilanların detay sayfaları çekiliyor (%d ilan, %d paralel)...",
+        log.info("Fetching detail pages for all listings (%d listings, %d parallel)...",
                  len(listings), concurrency)
         semaphore = asyncio.Semaphore(concurrency)
         done = 0
@@ -371,15 +372,15 @@ class FinnScraper:
             async with semaphore:
                 await self.fetch_detail(listing)
                 done += 1
-                log.info("Detay: %d/%d — %s", done, total, listing.title[:50])
+                log.info("Detail: %d/%d — %s", done, total, listing.title[:50])
                 await asyncio.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
 
         await asyncio.gather(*(_fetch_one(l) for l in listings))
 
     async def search(self, query: str, pages: int = DEFAULT_PAGES) -> list[Listing]:
-        """Verilen arama terimi için birden fazla sayfa tara."""
+        """Scan multiple pages for a given search term."""
         if self._browser is None:
-            raise RuntimeError("FinnScraper 'async with' ile kullanılmalı.")
+            raise RuntimeError("FinnScraper must be used with 'async with'.")
 
         all_listings: list[Listing] = []
         seen_ids: set[str] = set()
@@ -389,10 +390,10 @@ class FinnScraper:
         try:
             for page_num in range(1, pages + 1):
                 url = self._build_url(query, page_num)
-                log.info("Sayfa %d: %s", page_num, url)
+                log.info("Page %d: %s", page_num, url)
                 if not await self._goto_with_retry(page, url):
                     continue
-                await page.wait_for_timeout(1500)  # lazy render için
+                await page.wait_for_timeout(1500)  # allow lazy render
 
                 items = await self._parse_listings(page, query)
                 new_count = 0
@@ -403,10 +404,10 @@ class FinnScraper:
                     all_listings.append(item)
                     new_count += 1
 
-                log.info("Sayfa %d → %d yeni ilan", page_num, new_count)
+                log.info("Page %d → %d new listings", page_num, new_count)
 
                 if new_count == 0 and page_num > 1:
-                    # yeni bir şey yoksa sonuçların sonuna gelinmiştir
+                    # No new listings → we've reached the end of the results
                     self.last_search_complete = True
                     break
 
@@ -425,9 +426,9 @@ async def scrape_finn(
     headless: bool = True,
     enrich_limit: int = 0,
 ) -> list[Listing]:
-    """Kısayol: scraper'ı tek seferlik kullan.
+    """Shortcut: use the scraper as a one-shot.
 
-    enrich_limit > 0 ise ilk N ilanın detay sayfası da çekilir.
+    If enrich_limit > 0, the first N listings' detail pages are also fetched.
     """
     async with FinnScraper(headless=headless) as s:
         listings = await s.search(query, pages=pages)

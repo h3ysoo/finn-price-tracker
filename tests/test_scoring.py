@@ -11,7 +11,7 @@ def _listing(**kw):
 def test_extract_battery():
     assert _extract_battery("batterikapasitet 87%") == 87
     assert _extract_battery("batteri 100 %") == 100
-    assert _extract_battery("30% rabatt") is None  # mantıklı aralık dışı
+    assert _extract_battery("30% rabatt") is None  # outside the plausible range
     assert _extract_battery("ingen info") is None
 
 

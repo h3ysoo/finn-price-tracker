@@ -1,8 +1,8 @@
-"""Kaydedilmiş HTML fixture'ı üzerinden arama sayfası parser'ını test eder.
+"""Test the search-page parser against a saved HTML fixture.
 
-Gerçek bir Finn.no sayfası yerine selector'larla uyumlu tutulan bir
-snapshot kullanılır; Finn yapı değiştirip selector'lar bozulursa bu
-test CI'da erken uyarı verir. Headless Chromium gerektirir
+Instead of hitting a live Finn.no page, we parse a snapshot kept in sync
+with the selectors — if Finn changes their markup and breaks the
+selectors, this test flags it early in CI. Requires headless Chromium
 (`python -m playwright install chromium`).
 """
 import asyncio
@@ -32,7 +32,7 @@ def parsed_listings():
 
 
 def test_parses_all_valid_cards(parsed_listings):
-    # 3 article var ama biri linksiz reklam — 2 ilan çıkmalı
+    # 3 articles, but one is a link-less ad — should yield 2 listings
     assert [l.id for l in parsed_listings] == ["400111222", "400333444"]
 
 

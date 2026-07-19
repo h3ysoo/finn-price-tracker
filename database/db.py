@@ -1,4 +1,4 @@
-"""SQLite ile ilan kalıcılığı."""
+"""Listing persistence in SQLite."""
 from __future__ import annotations
 
 import json
@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS price_history (
 
 
 class Database:
-    """İnce SQLite sarmalayıcı."""
+    """Thin SQLite wrapper."""
 
     def __init__(self, path: Path = DB_PATH):
         self.path = Path(path)
@@ -62,7 +62,7 @@ class Database:
 
     @staticmethod
     def _migrate(conn: sqlite3.Connection) -> None:
-        """Eski DB dosyalarına sonradan eklenen kolonları tamamla."""
+        """Backfill columns added after the initial schema on older DB files."""
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(listings)")}
         for col, sql_type in (
             ("composite_score", "REAL"),
@@ -72,13 +72,14 @@ class Database:
             if col not in cols:
                 conn.execute(f"ALTER TABLE listings ADD COLUMN {col} {sql_type}")
 
-        # price_history eskiden sorgudan bağımsızdı; aynı finnkode iki farklı
-        # aramada geçince geçmişler karışıyordu. Eski satırlar query='' kalır.
+        # price_history used to be query-agnostic; the same finnkode appearing
+        # in two different searches would cross-contaminate histories.
+        # Legacy rows keep query=''.
         ph_cols = {r["name"] for r in conn.execute("PRAGMA table_info(price_history)")}
         if "query" not in ph_cols:
             conn.execute("ALTER TABLE price_history ADD COLUMN query TEXT NOT NULL DEFAULT ''")
 
-        # İndeks 'query' kolonunu kullandığı için migrasyondan sonra kurulmalı
+        # The index uses the 'query' column, so it must be created after the migration
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_price_history_listing_query "
             "ON price_history(listing_id, query, seen_at)"
@@ -95,13 +96,13 @@ class Database:
             conn.close()
 
     def save_listings(self, listings: Iterable[Listing], prune_missing: bool = True) -> int:
-        """Upsert — aynı (id, query) kaydı üzerine yazar.
+        """Upsert — overwrites the same (id, query) row.
 
-        Fiyat değişimleri ayrıca price_history tablosuna eklenir.
-        prune_missing=False ise taramada görünmeyen ilanlar pasife çekilmez.
-        Kısmi taramalarda (sayfa limiti dolduğu için sonuçların sonuna
-        ulaşmayan) hâlâ yayında olan ilanları yanlışlıkla "satıldı"
-        işaretlememek için False geçilmeli.
+        Price changes are also appended to the price_history table.
+        With prune_missing=False, listings missing from the scan aren't
+        marked inactive. Partial scans (that hit the page limit before
+        reaching the end of results) should pass False so that listings
+        still online aren't mistakenly marked as "sold".
         """
         listings = list(listings)
         rows = []
@@ -160,7 +161,7 @@ class Database:
 
     @staticmethod
     def _mark_missing_inactive(conn: sqlite3.Connection, listings: list[Listing]) -> None:
-        """Aynı sorgunun taze taramasında görünmeyen ilanlar satılmış/kalkmış demektir."""
+        """Listings missing from a fresh scan of the same query are treated as sold/removed."""
         by_query: dict[str, list[str]] = {}
         for l in listings:
             by_query.setdefault(l.query, []).append(l.id)
@@ -174,7 +175,7 @@ class Database:
 
     @staticmethod
     def _record_price_history(conn: sqlite3.Connection, listings: list[Listing]) -> None:
-        """Fiyatı olan her ilan için, son kayıttan farklıysa yeni geçmiş satırı ekle."""
+        """For every priced listing, add a history row if the price changed since the last entry."""
         for l in listings:
             if not l.price_nok:
                 continue
@@ -199,7 +200,7 @@ class Database:
             return [self._row_to_listing(r) for r in cur.fetchall()]
 
     def get_queries(self) -> list[tuple[str, int, datetime]]:
-        """Kayıtlı aramaların özeti — (sorgu, aktif ilan sayısı, son tarama zamanı)."""
+        """Summary of saved searches — (query, active listing count, last scan time)."""
         with self.connect() as conn:
             cur = conn.execute(
                 """
@@ -216,9 +217,9 @@ class Database:
             ]
 
     def get_best_deals(self, limit: int = 10, query: Optional[str] = None) -> list[Listing]:
-        """En negatif price_score (en ucuz) ilanlar — sadece hâlâ yayında olanlar.
+        """Listings with the most negative price_score (cheapest) — only still-active ones.
 
-        query verilirse sonuçlar o aramayla sınırlanır.
+        If query is given, restrict the results to that search.
         """
         sql = (
             "SELECT * FROM listings "
@@ -237,10 +238,10 @@ class Database:
     def get_price_drops(
         self, limit: int = 10, query: Optional[str] = None
     ) -> list[tuple[Listing, int]]:
-        """Son taramada fiyatı bir önceki kayda göre düşen ilanlar.
+        """Listings whose latest recorded price dropped versus the previous one.
 
-        (Listing, önceki_fiyat) çiftleri döner; en büyük yüzde düşüş önce.
-        query verilirse sonuçlar o aramayla sınırlanır.
+        Returns (Listing, previous_price) pairs; biggest percentage drop first.
+        If query is given, results are restricted to that search.
         """
         with self.connect() as conn:
             cur = conn.execute(
@@ -280,7 +281,7 @@ class Database:
             ]
 
     def get_price_history(self, listing_id: str, query: str) -> list[tuple[datetime, int]]:
-        """Bir ilanın fiyat geçmişi — (görülme zamanı, fiyat), eskiden yeniye."""
+        """Price history for a listing — (seen_at, price), oldest first."""
         with self.connect() as conn:
             cur = conn.execute(
                 "SELECT seen_at, price FROM price_history "
@@ -295,10 +296,10 @@ class Database:
     def get_listing_histories(
         self, listing_id: str
     ) -> list[tuple[Listing, list[tuple[datetime, int]]]]:
-        """Bir finnkode'un izlendiği her sorgu için (ilan, fiyat geçmişi) döndür.
+        """For a finnkode, return (listing, price history) for every query it was tracked under.
 
-        Aynı ilan birden fazla aramada takip edilmiş olabilir; geçmişi
-        olmayan girdiler atlanır.
+        The same listing may be tracked across multiple searches; entries without a
+        recorded history are skipped.
         """
         with self.connect() as conn:
             rows = conn.execute(
@@ -346,7 +347,7 @@ class Database:
         )
 
 
-# Modül düzeyi kısayollar
+# Module-level shortcuts
 _default: Optional[Database] = None
 
 

@@ -6,7 +6,7 @@ from models import Listing
 
 
 class ConcurrencyProbe:
-    """Aynı anda kaç create() çağrısı uçtuğunu ölçen sahte client."""
+    """Fake client that measures how many create() calls are in flight at once."""
 
     def __init__(self):
         self.current = 0
@@ -18,7 +18,7 @@ class ConcurrencyProbe:
         self.current += 1
         self.peak = max(self.peak, self.current)
         self.total += 1
-        await asyncio.sleep(0.01)  # istekler örtüşsün
+        await asyncio.sleep(0.01)  # let requests overlap
         self.current -= 1
         block = SimpleNamespace(type="tool_use", input={
             "condition_score": 7, "battery_pct": None, "red_flags": [], "summary": "ok",

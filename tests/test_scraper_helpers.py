@@ -13,13 +13,13 @@ def test_parse_price_norwegian_formats():
 def test_extract_id_from_url():
     assert _extract_id_from_url("https://www.finn.no/bap/forsale/ad.html?finnkode=123456789") == "123456789"
     assert _extract_id_from_url("https://www.finn.no/recommerce/forsale/item/987654321") == "987654321"
-    # ID bulunamazsa URL'nin kendisi döner (fallback)
+    # If no ID is found, the URL itself is returned (fallback)
     assert _extract_id_from_url("https://www.finn.no/foo") == "https://www.finn.no/foo"
 
 
 def test_upgrade_finn_image_url():
     url = "https://images.finncdn.no/dynamic/220x220c/2026/1/foo.jpg"
     assert _upgrade_finn_image_url(url) == "https://images.finncdn.no/dynamic/960x720c/2026/1/foo.jpg"
-    # Boyut segmenti yoksa URL değişmez
+    # If the size segment is absent, the URL is returned unchanged
     plain = "https://images.finncdn.no/static/foo.jpg"
     assert _upgrade_finn_image_url(plain) == plain

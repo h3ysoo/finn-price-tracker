@@ -1,4 +1,4 @@
-"""İstatistiksel fiyat analizi: ortalama, medyan, std, percentile."""
+"""Statistical price analysis: mean, median, std dev, percentiles."""
 from __future__ import annotations
 
 import logging
@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 
 
 def _percentile(sorted_values: list[float], p: float) -> float:
-    """Basit lineer interpolasyonlu percentile (0<=p<=100)."""
+    """Simple linear-interpolated percentile (0<=p<=100)."""
     if not sorted_values:
         return 0.0
     if len(sorted_values) == 1:
@@ -28,20 +28,20 @@ def _percentile(sorted_values: list[float], p: float) -> float:
 
 def analyze_prices(listings: Iterable[Listing]) -> PriceReport:
     """
-    Listing'lerin fiyatlarını özetle ve her ilana piyasa medyanına
-    göre 'price_score' ata.
+    Summarize listing prices and assign each listing a 'price_score' relative
+    to the market median.
 
     price_score = (price - median) / median * 100
-    → negatif = medyandan ucuz, pozitif = pahalı.
+    → negative = cheaper than median, positive = more expensive.
 
-    Medyan, ortalamanın aksine tek bir yanlış etiketli pahalı/ucuz
-    ilanın tüm skorları kaydırmasına izin vermez.
+    Unlike the mean, the median won't let a single mislabeled cheap/expensive
+    listing shift every score.
     """
     listings = list(listings)
     priced = [l for l in listings if l.price_nok and l.price_nok > 0]
 
     if not priced:
-        log.warning("Fiyatlı ilan yok, boş rapor dönüyor.")
+        log.warning("No priced listings; returning empty report.")
         query = listings[0].query if listings else ""
         return PriceReport(
             query=query,
@@ -74,12 +74,12 @@ def analyze_prices(listings: Iterable[Listing]) -> PriceReport:
         listings=listings,
     )
 
-    # Her ilana score ver (fiyatsızlar None kalır)
+    # Score every listing (unpriced ones stay None)
     for l in listings:
         if l.price_nok and median > 0:
             l.price_score = round((l.price_nok - median) / median * 100, 2)
 
-    # Ucuzdan pahalıya sırala (None'ları sona at)
+    # Sort cheapest first (None prices at the end)
     report.listings = sorted(
         listings,
         key=lambda x: (x.price_score is None, x.price_score if x.price_score is not None else 0),
@@ -92,10 +92,10 @@ def select_candidates(
     limit: int,
     suspicious_threshold: float = -60.0,
 ) -> list[Listing]:
-    """AI analizi için en iyi aday ilanları seç.
+    """Pick the best candidate listings for AI analysis.
 
-    Öncelik: composite_score (varsa), yoksa price_score.
-    Piyasanın %60'ından fazla altındaki ilanları atla.
+    Priority: composite_score (when set), otherwise price_score.
+    Skips listings more than 60% below the market (likely mislabeled).
     """
     candidates = [
         l for l in report.listings
@@ -105,7 +105,7 @@ def select_candidates(
     if not candidates:
         candidates = [l for l in report.listings if l.price_score is not None]
 
-    # composite_score varsa ona göre, yoksa price_score'a göre sırala
+    # Sort by composite_score if any is set, otherwise by price_score
     if any(l.composite_score is not None for l in candidates):
         candidates.sort(key=lambda x: x.composite_score or 0, reverse=True)
     else:

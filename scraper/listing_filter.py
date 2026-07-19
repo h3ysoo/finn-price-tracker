@@ -1,4 +1,4 @@
-"""Alakasız ilanları filtrele (aksesuar, kutu, satın alma isteği vb.)."""
+"""Filter out irrelevant listings (accessories, boxes, buy-wanted ads, etc.)."""
 from __future__ import annotations
 
 import re
@@ -9,13 +9,13 @@ from models import Listing
 
 log = logging.getLogger(__name__)
 
-# Norveçce + İngilizce — telefon ilanı OLMAYAN kategorileri işaret eden kelimeler
+# Norwegian + English — keywords marking categories that are NOT actual phone listings
 _BLACKLIST_PATTERNS: list[str] = [
-    # Kutular / ambalaj
+    # Boxes / packaging
     r"\beske[rn]?\b",
     r"\bboks\b",
     r"\bomvisning\b",
-    # Kılıf / ekran koruyucu / aksesuar
+    # Cases / screen protectors / accessories
     r"\bdeksel\b",
     r"\betui\b",
     r"\bcover\b",
@@ -25,12 +25,12 @@ _BLACKLIST_PATTERNS: list[str] = [
     r"\bpopgrip\b",
     r"\bpopsocket\b",
     r"\bstativ\b",
-    # Şarj / kablo
+    # Chargers / cables
     r"\blader[en]?\b",
     r"\bladekabel\b",
     r"\bcharger\b",
     r"\bkabel\b",
-    # Satın alma isteği (alıcı ilanı)
+    # Buy-wanted ads (buyer, not seller)
     r"\bkjøper\b",
     r"\bønsker å kjøpe\b",
     r"\bønsker å kjøp\b",
@@ -38,33 +38,34 @@ _BLACKLIST_PATTERNS: list[str] = [
     r"\bwanted\b",
     r"\bvil kjøpe\b",
     r"\bhenter på dagen\b",
-    # Parça / tamir
+    # Parts / repair
     r"\bdeler\b",
     r"\breparasjon\b",
     r"\brepair\b",
-    r"\bknust\b",  # kırık (ekran kırığı genellikle "knust skjerm" olarak geçer ama başlık bazında çok geniş)
-    # Genel aksesuar
+    r"\bknust\b",  # broken (screen cracks usually say "knust skjerm"; too broad at title level)
+    # Generic accessory terms
     r"\btilbehør\b",
     r"\baccessories\b",
-    # Ticari / toplu satış sinyalleri
-    r"\boppover\b",            # "13 & oppover" = model aralığı
+    # Commercial / bulk-sale signals
+    r"\boppover\b",            # "13 & oppover" = model range
 ]
 
 _BLACKLIST_RE = re.compile("|".join(_BLACKLIST_PATTERNS), re.IGNORECASE)
 
 
 def is_relevant(listing: Listing, min_price: Optional[int] = None) -> bool:
-    """True → ilan muhtemelen gerçek bir cihaz satışı."""
-    # Kara liste kontrolü — bilerek sadece başlık: açıklamada "lader følger med"
-    # (şarj aleti dahil) gibi meşru ifadeler yanlış pozitif üretir
+    """True → the listing is likely a real device for sale."""
+    # Blacklist check — title only, on purpose: descriptions often say
+    # "lader følger med" (charger included) and other legit phrases that
+    # would produce false positives.
     if _BLACKLIST_RE.search(listing.title):
-        log.debug("Filtrelendi (kara liste): %s", listing.title)
+        log.debug("Filtered (blacklist): %s", listing.title)
         return False
 
-    # Minimum fiyat kontrolü
+    # Minimum price check
     if min_price is not None and listing.price_nok is not None:
         if listing.price_nok < min_price:
-            log.debug("Filtrelendi (düşük fiyat %d kr): %s", listing.price_nok, listing.title)
+            log.debug("Filtered (low price %d kr): %s", listing.price_nok, listing.title)
             return False
 
     return True
@@ -74,13 +75,13 @@ def filter_listings(
     listings: list[Listing],
     min_price: Optional[int] = None,
 ) -> list[Listing]:
-    """Listeyi filtrele, kaç ilan atlandığını logla."""
+    """Filter the list, log how many were dropped."""
     before = len(listings)
     filtered = [l for l in listings if is_relevant(l, min_price=min_price)]
     removed = before - len(filtered)
     if removed:
         log.info(
-            "Filtre: %d alakasız ilan çıkarıldı (%d → %d kaldı).",
+            "Filter: removed %d irrelevant listings (%d → %d remaining).",
             removed,
             before,
             len(filtered),

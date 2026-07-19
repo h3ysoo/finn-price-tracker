@@ -1,4 +1,4 @@
-"""Claude Vision + metin analizi ile ilan değerlendirmesi."""
+"""Listing assessment via Claude Vision + text analysis."""
 from __future__ import annotations
 
 import asyncio
@@ -20,31 +20,31 @@ from models import AIReport, Listing
 
 log = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Sen, Finn.no (Norveç 2. el pazarı) ilanlarını değerlendiren bir uzmansın.
-Sana ilanın birden fazla fotoğrafı ve tam açıklaması verilecek.
+SYSTEM_PROMPT = """You are an expert who evaluates Finn.no (Norwegian second-hand marketplace) listings.
+You will be given several photos of the listing and its full description.
 
-Görevin:
-1. TÜM fotoğrafları dikkatlice incele. Gördüğün gerçek durumu yaz — fotoğrafta olan bir şeyi "eksik" olarak işaretleme.
-2. Ürün bir telefon/tablet/laptop ise şu noktalara odaklan:
-   - EKRAN: çizik, kırık, yanma (burn-in), dead pixel var mı?
-   - KASA/ARKA KAPAK: hasar, çizik, bükülme var mı?
-   - KAMERA: lens çizik/kırık mı?
-   - BATARYA: açıklamada veya ekran fotoğrafında batarya % yazıyor mu? Kaç?
-   - AKSESUAR: kutu, şarj aleti, kablo var mı?
-   - KİLİT: iCloud/Google hesabı kilidi riski var mı?
-   Başka bir ürün kategorisiyse (kulaklık, kamera, konsol vb.) o kategoriye uygun
-   aşınma, hasar ve eksik parça kriterlerine göre değerlendir; batarya bilgisi
-   anlamlı değilse null bırak.
-3. Açıklamada belirtilen bilgileri (batarya %, garanti, hasar) doğrula. Çelişki varsa belirt.
-4. Red flag listele — SADECE gerçekten sorunlu olanları, fazla abartma.
+Your task:
+1. Study ALL the photos carefully. Write what you actually see — do not mark something as "missing" if the photo shows it.
+2. If the item is a phone/tablet/laptop, focus on:
+   - SCREEN: any scratches, cracks, burn-in, dead pixels?
+   - BODY/BACK COVER: any damage, scratches, bending?
+   - CAMERA: is the lens scratched or cracked?
+   - BATTERY: is a battery % shown in the description or in a screen photo? How much?
+   - ACCESSORIES: is the box, charger, or cable included?
+   - LOCK: any risk of iCloud/Google account lock?
+   If the item is in a different category (headphones, camera, console, etc.), assess it
+   against the wear, damage, and missing-part criteria appropriate for that category;
+   leave battery info null if it isn't meaningful.
+3. Cross-check facts stated in the description (battery %, warranty, damage). Flag contradictions.
+4. List red flags — ONLY the genuinely concerning ones, don't overdo it.
 
-Sonucu report_listing_assessment aracıyla raporla.
+Report the result via the report_listing_assessment tool.
 """
 
-# Zorunlu tool çağrısı — Claude'un çıktısını şemaya kilitler, JSON parse hatasını yok eder
+# Forced tool call — pins Claude's output to the schema and eliminates JSON parse errors
 AI_REPORT_TOOL = {
     "name": "report_listing_assessment",
-    "description": "İkinci el ilan değerlendirme sonucunu yapılandırılmış olarak raporla.",
+    "description": "Report the structured evaluation of a second-hand listing.",
     "strict": True,
     "input_schema": {
         "type": "object",
@@ -52,20 +52,20 @@ AI_REPORT_TOOL = {
             "condition_score": {
                 "type": "integer",
                 "enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
-                "description": "Ürünün genel durumu, 1 (çok kötü) - 10 (yeni gibi)",
+                "description": "Overall item condition, 1 (very poor) - 10 (like new)",
             },
             "battery_pct": {
                 "type": ["integer", "null"],
-                "description": "Batarya sağlığı yüzdesi; bilinmiyorsa veya anlamsızsa null",
+                "description": "Battery health percentage; null if unknown or not meaningful",
             },
             "red_flags": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Gerçekten sorunlu noktalar (Türkçe)",
+                "description": "Genuinely concerning points (in English)",
             },
             "summary": {
                 "type": "string",
-                "description": "2-3 cümlelik Türkçe özet",
+                "description": "2-3 sentence summary in English",
             },
         },
         "required": ["condition_score", "battery_pct", "red_flags", "summary"],
@@ -75,7 +75,7 @@ AI_REPORT_TOOL = {
 
 
 async def _download_image(url: str) -> Optional[tuple[bytes, str]]:
-    """Görseli indir, (bytes, media_type) döndür."""
+    """Download an image and return (bytes, media_type)."""
     try:
         async with aiohttp.ClientSession(
             headers={"User-Agent": USER_AGENT},
@@ -83,7 +83,7 @@ async def _download_image(url: str) -> Optional[tuple[bytes, str]]:
         ) as s:
             async with s.get(url) as resp:
                 if resp.status != 200:
-                    log.warning("Görsel indirilemedi (%s): %s", resp.status, url)
+                    log.warning("Image download failed (%s): %s", resp.status, url)
                     return None
                 data = await resp.read()
                 ct = resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
@@ -91,7 +91,7 @@ async def _download_image(url: str) -> Optional[tuple[bytes, str]]:
                     ct = "image/jpeg"
                 return data, ct
     except Exception as e:
-        log.warning("Görsel indirme hatası: %s", e)
+        log.warning("Image download error: %s", e)
         return None
 
 
@@ -99,16 +99,16 @@ async def analyze_listing_ai(
     listing: Listing,
     client: Optional[AsyncAnthropic] = None,
 ) -> Optional[AIReport]:
-    """Tek bir ilan için Claude Vision analizi yap."""
+    """Run a Claude Vision analysis for a single listing."""
     if not ANTHROPIC_API_KEY:
-        log.error("ANTHROPIC_API_KEY yok, AI analizi atlandı.")
+        log.error("ANTHROPIC_API_KEY missing, AI analysis skipped.")
         return None
 
     client = client or AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
     content: list[dict] = []
 
-    # Tüm görselleri paralel indir (max 8, API limiti için)
+    # Download all images in parallel (max 8 for API limits)
     if listing.image_urls:
         download_tasks = [_download_image(u) for u in listing.image_urls[:8]]
         results = await asyncio.gather(*download_tasks, return_exceptions=True)
@@ -131,17 +131,17 @@ async def analyze_listing_ai(
             downloaded += 1
 
         if downloaded > 1:
-            # Kaç görsel gönderildiğini Claude'a bildir
+            # Tell Claude how many images were provided
             content.append({
                 "type": "text",
-                "text": f"(Yukarıda ilanın {downloaded} farklı fotoğrafı verildi. Hepsini dikkate alarak değerlendir.)"
+                "text": f"(Above are {downloaded} different photos of the listing. Take all of them into account when evaluating.)"
             })
 
     user_text = (
-        f"İlan başlığı: {listing.title}\n"
-        f"Fiyat: {listing.price_nok} NOK\n"
-        f"Konum: {listing.location or '-'}\n"
-        f"Açıklama: {listing.description or '(açıklama yok)'}\n"
+        f"Listing title: {listing.title}\n"
+        f"Price: {listing.price_nok} NOK\n"
+        f"Location: {listing.location or '-'}\n"
+        f"Description: {listing.description or '(no description)'}\n"
     )
     content.append({"type": "text", "text": user_text})
 
@@ -155,12 +155,12 @@ async def analyze_listing_ai(
             tool_choice={"type": "tool", "name": AI_REPORT_TOOL["name"]},
         )
     except Exception as e:
-        log.error("Claude API hatası (%s): %s", listing.id, e)
+        log.error("Claude API error (%s): %s", listing.id, e)
         return None
 
     block = next((b for b in msg.content if getattr(b, "type", "") == "tool_use"), None)
     if block is None:
-        log.error("Tool çağrısı dönmedi (%s): stop_reason=%s", listing.id, msg.stop_reason)
+        log.error("No tool call returned (%s): stop_reason=%s", listing.id, msg.stop_reason)
         return None
 
     parsed = block.input
@@ -173,7 +173,7 @@ async def analyze_listing_ai(
             summary=str(parsed.get("summary", "")),
         )
     except Exception as e:
-        log.error("AI raporu doğrulanamadı (%s): %s | input=%s", listing.id, e, str(parsed)[:200])
+        log.error("AI report validation failed (%s): %s | input=%s", listing.id, e, str(parsed)[:200])
         return None
 
 
@@ -182,15 +182,15 @@ async def analyze_top_listings(
     limit: int = AI_ANALYSIS_LIMIT,
     client: Optional[AsyncAnthropic] = None,
 ) -> list[Listing]:
-    """İlk `limit` ilan için AI analizini sınırlı paralellikle çalıştır.
+    """Run AI analysis on the first `limit` listings with bounded concurrency.
 
-    En fazla AI_CONCURRENCY istek aynı anda uçar; hepsini birden
-    göndermek görsel-ağır isteklerde rate limit'e takılabiliyor.
+    At most AI_CONCURRENCY requests fly at once; sending them all at once can
+    hit rate limits on image-heavy requests.
     """
     if not listings:
         return listings
     if not ANTHROPIC_API_KEY:
-        log.warning("ANTHROPIC_API_KEY yok — AI analizi atlanıyor.")
+        log.warning("ANTHROPIC_API_KEY missing — skipping AI analysis.")
         return listings
 
     client = client or AsyncAnthropic(api_key=ANTHROPIC_API_KEY)

@@ -49,21 +49,21 @@ def test_get_price_history(tmp_path):
     db.save_listings([_listing("111", 4200, at=T1)])
 
     assert db.get_price_history("111", "iphone 13") == [(T0, 5000), (T1, 4200)]
-    # Farklı sorgunun geçmişi boş
-    assert db.get_price_history("111", "baska arama") == []
+    # A different query's history is empty
+    assert db.get_price_history("111", "another search") == []
 
 
 def test_get_queries_and_active_only(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("111", 5000), _listing("222", 7000)])
     db.save_listings([_listing("333", 8000, at=T1, query="macbook air")])
-    # iphone sorgusunun yeni taramasında 222 kayboldu → pasif
+    # 222 is missing from the fresh iphone scan → gets marked inactive
     db.save_listings([_listing("111", 5000, at=T1)])
 
     queries = db.get_queries()
     assert [(q, n) for q, n, _ in queries] == [("iphone 13", 1), ("macbook air", 1)]
 
-    # active_only pasif ilanı gizler, varsayılan hepsini döndürür
+    # active_only hides inactive listings; default returns all
     assert {l.id for l in db.get_by_query("iphone 13")} == {"111", "222"}
     assert [l.id for l in db.get_by_query("iphone 13", active_only=True)] == ["111"]
 
@@ -75,19 +75,19 @@ def test_deals_and_drops_query_filter(tmp_path):
     db.save_listings([_listing("111", 4500, at=T1)])
     db.save_listings([_listing("222", 7000, at=T1, query="macbook air")])
 
-    # Filtresiz: iki sorgudan da sonuç gelir
+    # Unfiltered: both queries contribute
     assert {l.id for l in db.get_best_deals()} == {"111", "222"}
     assert {l.id for l, _ in db.get_price_drops()} == {"111", "222"}
 
-    # Filtreli: sadece ilgili sorgu
+    # Filtered: only the specified query
     assert [l.id for l in db.get_best_deals(query="macbook air")] == ["222"]
     assert [l.id for l, _ in db.get_price_drops(query="iphone 13")] == ["111"]
-    assert db.get_price_drops(query="olmayan arama") == []
+    assert db.get_price_drops(query="missing search") == []
 
 
 def test_get_listing_histories(tmp_path):
     db = Database(path=tmp_path / "t.db")
-    # Aynı finnkode iki sorguda izleniyor; üçüncü bir ilan alakasız
+    # Same finnkode tracked across two queries; a third listing is unrelated
     db.save_listings([_listing("111", 5000), _listing("777", 9000)])
     db.save_listings([_listing("111", 4200, at=T1)])
     db.save_listings([_listing("111", 4300, at=T1, query="iphone 13 pro")])
@@ -98,13 +98,13 @@ def test_get_listing_histories(tmp_path):
         ("iphone 13 pro", [(T1, 4300)]),
     ]
     assert entries[0][0].title == "iPhone 13 (111)"
-    assert db.get_listing_histories("yok-boyle-ilan") == []
+    assert db.get_listing_histories("no-such-listing") == []
 
 
 def test_price_history_is_per_query(tmp_path):
     db = Database(path=tmp_path / "t.db")
-    # Aynı finnkode iki farklı aramada farklı fiyatla görünsün —
-    # geçmişler karışmamalı ve sahte "fiyat düştü" kaydı oluşmamalı
+    # Same finnkode appears at different prices in two different searches —
+    # histories must not mix and no bogus "price drop" should be recorded
     db.save_listings([_listing("111", 5000)])
     db.save_listings([_listing("111", 4000, at=T1, query="iphone 13 pro")])
 
@@ -131,25 +131,25 @@ def test_ai_fields_round_trip(tmp_path):
     db = Database(path=tmp_path / "t.db")
     l = _listing(
         "444", 6000, composite_score=77.5,
-        ai_report=AIReport(condition_score=9, battery_pct=88, red_flags=["Kutu yok"], summary="s"),
+        ai_report=AIReport(condition_score=9, battery_pct=88, red_flags=["No box"], summary="s"),
     )
     db.save_listings([l])
     back = db.get_by_query("iphone 13")[0]
     assert back.composite_score == 77.5
     assert back.ai_report.battery_pct == 88
-    assert back.ai_report.red_flags == ["Kutu yok"]
+    assert back.ai_report.red_flags == ["No box"]
 
 
 def test_missing_listings_marked_inactive(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("111", 5000), _listing("222", 7000)])
-    # Yeni taramada 222 yok → satılmış say, deals'te görünmesin
+    # 222 is missing from the fresh scan → treat as sold, hide from deals
     db.save_listings([_listing("111", 5000, at=T1)])
 
     deals = db.get_best_deals()
     assert [l.id for l in deals] == ["111"]
 
-    # 222 tekrar görünürse yeniden aktifleşmeli
+    # If 222 reappears, it should be reactivated
     db.save_listings([_listing("111", 5000, at=T1), _listing("222", 6800, at=T1)])
     assert {l.id for l in db.get_best_deals()} == {"111", "222"}
 
@@ -157,8 +157,8 @@ def test_missing_listings_marked_inactive(tmp_path):
 def test_partial_scan_does_not_prune(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("111", 5000), _listing("222", 7000)])
-    # Kısmi tarama (sonuçların sonuna ulaşılmadı): 222 görünmedi ama
-    # muhtemelen sadece taranmayan sayfalarda — pasife çekilmemeli
+    # Partial scan (didn't reach the end of results): 222 wasn't seen but
+    # is probably just on an unscanned page — don't mark it inactive
     db.save_listings([_listing("111", 5000, at=T1)], prune_missing=False)
     assert {l.id for l in db.get_best_deals()} == {"111", "222"}
 
@@ -166,9 +166,9 @@ def test_partial_scan_does_not_prune(tmp_path):
 def test_drops_exclude_inactive(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("111", 5000)])
-    db.save_listings([_listing("111", 4000, at=T1)])  # fiyat düştü
+    db.save_listings([_listing("111", 4000, at=T1)])  # price dropped
     assert len(db.get_price_drops()) == 1
-    # Sonraki taramada ilan kayboldu → drops'ta da görünmemeli
+    # The listing is gone in the next scan → shouldn't appear in drops either
     db.save_listings([_listing("999", 9000, at=T1)])
     assert db.get_price_drops() == []
 
@@ -176,9 +176,9 @@ def test_drops_exclude_inactive(tmp_path):
 def test_upsert_preserves_ai_fields(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([
-        _listing("555", 5000, ai_report=AIReport(condition_score=8, summary="analiz"))
+        _listing("555", 5000, ai_report=AIReport(condition_score=8, summary="analysis"))
     ])
-    # AI raporu olmadan tekrar kaydet — eski AI verisi korunmalı
+    # Re-save without an AI report — the old AI data must be preserved
     db.save_listings([_listing("555", 4800, at=T1)])
     back = db.get_by_query("iphone 13")[0]
     assert back.price_nok == 4800

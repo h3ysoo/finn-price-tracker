@@ -113,7 +113,7 @@ outlier listing can't skew every score.
 1. The scraper visits each candidate listing's detail page and fetches the full description and all gallery images (up to 8).
 2. Images are upgraded to 960×720 resolution from the Finn CDN.
 3. All images are sent to Claude in a single request alongside the full description.
-4. Claude returns a condition score (1–10), red flags, and a summary in Turkish.
+4. Claude returns a condition score (1–10), red flags, and a summary in English.
 
 ## Notes
 

@@ -1,4 +1,4 @@
-"""Ortak veri modelleri."""
+"""Shared data models."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class AIReport(BaseModel):
-    """Claude Vision analizi çıktısı."""
+    """Claude Vision analysis output."""
 
     condition_score: int = Field(..., ge=1, le=10)
     battery_pct: Optional[int] = None
@@ -17,7 +17,7 @@ class AIReport(BaseModel):
 
 
 class Listing(BaseModel):
-    """Finn.no'dan çekilen tek bir ilan."""
+    """A single listing scraped from Finn.no."""
 
     id: str
     query: str
@@ -28,13 +28,13 @@ class Listing(BaseModel):
     scraped_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     image_urls: list[str] = Field(default_factory=list)
     description: str = ""
-    price_score: Optional[float] = None      # piyasa ortalamasına göre % (negatif = ucuz)
-    composite_score: Optional[float] = None  # bileşik fırsat skoru 0-100 (yüksek = iyi)
+    price_score: Optional[float] = None      # % relative to market median (negative = cheap)
+    composite_score: Optional[float] = None  # composite deal score 0-100 (higher = better)
     ai_report: Optional[AIReport] = None
 
 
 class PriceReport(BaseModel):
-    """Bir arama sonucuna ait istatistiksel özet."""
+    """Statistical summary of a single search's results."""
 
     query: str
     count: int

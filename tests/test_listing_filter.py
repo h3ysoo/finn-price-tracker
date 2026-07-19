@@ -18,7 +18,7 @@ def test_buy_wanted_filtered():
 
 
 def test_common_norwegian_words_not_filtered():
-    # 'eller' ve 'salg' meşru ilanlarda geçer — filtrelenmemeli
+    # 'eller' and 'salg' appear in legitimate listings — shouldn't be filtered
     assert is_relevant(_listing("iPhone 13 128GB eller 256GB"))
     assert is_relevant(_listing("Salg av iPhone 14 Pro"))
     assert is_relevant(_listing("iPhone 13 Pro Max 256GB"))
@@ -27,7 +27,7 @@ def test_common_norwegian_words_not_filtered():
 def test_min_price():
     assert not is_relevant(_listing("iPhone 13", price=200), min_price=500)
     assert is_relevant(_listing("iPhone 13", price=800), min_price=500)
-    # Fiyatsız ilan min_price ile elenmez
+    # Unpriced listings are not filtered out by min_price
     assert is_relevant(_listing("iPhone 13", price=None), min_price=500)
 
 

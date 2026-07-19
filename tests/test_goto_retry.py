@@ -4,7 +4,7 @@ from scraper.finn_scraper import FinnScraper
 
 
 class FlakyPage:
-    """İlk `fail_times` çağrıda hata fırlatan sahte Playwright sayfası."""
+    """Fake Playwright page that raises on the first `fail_times` calls."""
 
     def __init__(self, fail_times: int):
         self.fail_times = fail_times

@@ -41,7 +41,7 @@ def test_export_csv(tmp_path, monkeypatch):
     rows = list(csv.DictReader(out.open(encoding="utf-8")))
     assert len(rows) == 2
     first = {r["id"]: r for r in rows}["111"]
-    assert first["title"] == "iPhone 13, æøå test"  # virgül + Norveç harfleri sağlam
+    assert first["title"] == "iPhone 13, æøå test"  # comma + Norwegian characters preserved
     assert first["price_nok"] == "5000"
     assert first["condition_score"] == "9"
     assert first["battery_pct"] == "88"
@@ -61,5 +61,5 @@ def test_export_json(tmp_path, monkeypatch):
 def test_export_unknown_query(tmp_path, monkeypatch):
     db = _seed(tmp_path)
     monkeypatch.setattr(main, "Database", lambda: db)
-    rc = main.cmd_export(argparse.Namespace(query="yok", format="csv", output=None))
+    rc = main.cmd_export(argparse.Namespace(query="missing", format="csv", output=None))
     assert rc == 1
