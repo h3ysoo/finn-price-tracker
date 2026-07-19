@@ -21,7 +21,7 @@ CLAUDE_MODEL = "claude-sonnet-5"
 
 # Finn.no
 FINN_BASE_URL = "https://www.finn.no"
-FINN_SEARCH_PATH = "/bap/forsale/search.html"
+FINN_SEARCH_PATH = "/recommerce/forsale/search"
 DEFAULT_PAGES = 3
 REQUEST_DELAY_MIN = 1.0
 REQUEST_DELAY_MAX = 2.0

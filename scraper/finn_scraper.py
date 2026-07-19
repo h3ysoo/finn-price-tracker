@@ -127,7 +127,9 @@ class FinnScraper:
         # render edilebiliyor. İkisini de dene.
         cards = await page.query_selector_all("article")
         if not cards:
-            cards = await page.query_selector_all("a[id^='bap-']")
+            cards = await page.query_selector_all(
+                "a[href*='/recommerce/forsale/item/'], a[id^='bap-']"
+            )
 
         out: list[Listing] = []
         for card in cards:
@@ -143,7 +145,11 @@ class FinnScraper:
     async def _extract_card(self, card, query: str) -> Optional[Listing]:
         """Tek bir ilan kartından Listing oluştur."""
         # Başlık + URL
-        link = await card.query_selector("a[href*='/bap/'], a[href*='finnkode=']")
+        link = await card.query_selector(
+            "a[href*='/recommerce/forsale/item/'], "
+            "a[href*='/bap/'], "
+            "a[href*='finnkode=']"
+        )
         if not link:
             link = await card.query_selector("a")
         if not link:
