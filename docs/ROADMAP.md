@@ -69,21 +69,27 @@ Goal: the current app runs identically in Docker; no behavior change.
       limits, delays) with current values as defaults.
 - [x] CI builds the image (`docker` job in `.github/workflows/ci.yml`).
 
-## Phase 2 — Job queue (kills problem #1) — IN PROGRESS
+## Phase 2 — Job queue (kills problem #1) — ✅ DONE (code); needs a live compose run
 
 Goal: scraping never runs inside the web process.
 
 - [x] Extract the pipeline into `pipeline.py` — `SearchParams` / `SearchResult`
       + `run_search` (async) / `run_search_sync`, with a `progress` callback.
       Both `app.py` and `main.py` now drive it. This is the seam the worker calls.
-- [ ] Add **RQ + Redis** (simplest) or Celery. Worker executes pipeline jobs;
-      web enqueues and polls a `jobs` table/queue for status + progress.
-- [ ] Worker concurrency = 1–2 browser instances max; reuse one Playwright
-      browser across jobs (see `scraper/finn_scraper.py::FinnScraper` — it
-      already keeps one shared BrowserContext per run).
-- [ ] Streamlit UI: replace the blocking spinner with job status polling
-      (`st.status` + `st.rerun` on an interval), keep results in
-      `st.session_state` as today.
+- [x] **RQ + Redis** via `jobs.py`: `enqueue_search` / `fetch_job` /
+      `run_search_job` (reports stage via `job.meta`). Gated on `REDIS_URL` —
+      unset means in-process fallback, so local dev needs no Redis. Tested
+      with fakeredis + a synchronous queue (`tests/test_jobs.py`).
+- [x] Worker concurrency: one RQ worker = one job (one browser) at a time;
+      scale with `docker compose up --scale worker=2` if RAM allows.
+      (Browser reuse *across* jobs is a possible later optimization.)
+- [x] Streamlit UI enqueues + polls every 2s showing the worker's stage;
+      results stay in `st.session_state`.
+- [ ] **Validation gap:** the full queued flow has not been exercised on a
+      machine with Docker (dev machine had none — image + unit tests are CI-
+      verified). First session on a Docker-capable machine: `docker compose
+      up --build`, run a search, confirm the worker executes it and the page
+      polls to completion.
 
 ## Phase 3 — Postgres + result caching (kills problem #5, halves scraping)
 
@@ -155,7 +161,11 @@ Key files to read first when picking this up cold:
 ## Progress log
 
 - **Phase 1 complete** (env-var config, Dockerfile + compose, CI image build).
-- **Phase 2 started**: pipeline extracted to `pipeline.py`; both UI and CLI
-  use it. **Next step: add RQ + Redis**, move `run_search` into a worker job,
-  and make the Streamlit UI enqueue + poll instead of blocking. Add `worker`
-  and `redis` services to `docker-compose.yml` at that point.
+- **Phase 2 complete in code**: `pipeline.py` (shared pipeline), `jobs.py`
+  (RQ queue, `REDIS_URL`-gated with in-process fallback), Streamlit
+  enqueue+poll, and compose now runs `web` + `worker` + `redis`.
+  Outstanding: one live `docker compose up` validation on a Docker-capable
+  machine (see the checkbox in Phase 2).
+- **Next: Phase 3** — Postgres migration + query-result caching. Start with
+  the cache (serve results scanned < N hours ago without re-scraping); it is
+  independent of the DB engine and delivers the biggest cost/IP-risk win.
