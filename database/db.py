@@ -199,6 +199,18 @@ class Database:
             cur = conn.execute(sql, (query,))
             return [self._row_to_listing(r) for r in cur.fetchall()]
 
+    def last_scan_time(self, query: str) -> Optional[datetime]:
+        """When this query's active listings were last scraped (None if never)."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT MAX(scraped_at) AS m FROM listings "
+                "WHERE query = ? AND is_active = 1",
+                (query,),
+            ).fetchone()
+        if row is None or row["m"] is None:
+            return None
+        return datetime.fromisoformat(row["m"])
+
     def get_queries(self) -> list[tuple[str, int, datetime]]:
         """Summary of saved searches — (query, active listing count, last scan time)."""
         with self.connect() as conn:

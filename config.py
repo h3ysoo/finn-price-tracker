@@ -54,6 +54,11 @@ AI_CONCURRENCY = _env_int("AI_CONCURRENCY", 3)
 # Filter — listings below this price are treated as accessories/boxes and dropped
 LISTING_MIN_PRICE = _env_int("LISTING_MIN_PRICE", 500)
 
+# Serve stored results when the same query was scanned less than this many
+# hours ago instead of scraping again (0 disables the cache). The biggest
+# cost / IP-risk reducer once several people share one deployment.
+SEARCH_CACHE_TTL_HOURS = _env_float("SEARCH_CACHE_TTL_HOURS", 6.0)
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
