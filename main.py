@@ -144,6 +144,7 @@ async def cmd_search(args: argparse.Namespace) -> int:
         pages=args.pages,
         ai_limit=ai_limit,
         deep_scan=args.deep_scan,
+        use_cache=not args.fresh,
     )
 
     def progress(stage: str) -> None:
@@ -167,7 +168,14 @@ async def cmd_search(args: argparse.Namespace) -> int:
     _render_listings(report.listings[: max(20, ai_limit)], title="Listings (cheapest first)")
     _render_ai_details(top)
 
-    console.print(f"[green]✓[/green] {report.count} listings saved to DB: {Database().path}")
+    if result.from_cache:
+        scanned = result.scanned_at.strftime("%Y-%m-%d %H:%M") if result.scanned_at else "?"
+        console.print(
+            f"[dim]⚡ Served from cache (scanned {scanned}). "
+            f"Use --fresh to force a new scan.[/dim]"
+        )
+    else:
+        console.print(f"[green]✓[/green] {report.count} listings saved to DB: {Database().path}")
     return 0
 
 
@@ -321,6 +329,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--show-browser", action="store_true", help="Run without headless mode")
     sp.add_argument("--deep-scan", action="store_true",
                     help="Read every listing's detail page (more accurate scores, slower)")
+    sp.add_argument("--fresh", action="store_true",
+                    help="Skip the result cache and always run a new scan")
 
     dp = sub.add_parser("deals", help="List the best deals from the DB")
     dp.add_argument("--limit", type=int, default=10)

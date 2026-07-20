@@ -20,6 +20,9 @@ Streamlit web UI.
   full price timeline
 - Sold-listing tracking — listings that disappear from a scan are marked
   inactive and excluded from deals/drops
+- **Result cache** — repeating a search within `SEARCH_CACHE_TTL_HOURS`
+  (default 6 h) serves stored results instantly instead of re-scraping;
+  override with `--fresh` (CLI) or the *Force fresh scan* toggle (web)
 - CSV/JSON export for spreadsheets and scripts
 - SQLite persistence; colorful terminal output with `rich`
 - UTF-8 + Norwegian character support (æ ø å)

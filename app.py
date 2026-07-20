@@ -116,13 +116,18 @@ def _score_color(score: Optional[float]) -> str:
 # future job worker); the UI only builds params and renders the result.
 
 
-def run_pipeline(query, pages, ai_limit, min_price, deep_scan):
-    params = SearchParams(
-        query=query, pages=pages, ai_limit=ai_limit,
-        min_price=min_price, deep_scan=deep_scan,
-    )
-    result = run_search_sync(params)
-    return result.report, result.top
+def run_pipeline(params: SearchParams):
+    return run_search_sync(params)
+
+
+def _result_state(query: str, result) -> dict:
+    return {
+        "query": query,
+        "report": result.report,
+        "top": result.top,
+        "from_cache": result.from_cache,
+        "scanned_at": result.scanned_at,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +205,12 @@ with st.sidebar:
         help="Reads every listing's detail page — scores are more accurate but it "
              "takes 2-4 minutes. When off, only AI candidates are fetched (~30-60s).",
     )
+    fresh_scan = st.checkbox(
+        "Force fresh scan",
+        value=False,
+        help="Skip the result cache: recent scans of the same query are normally "
+             "served instantly from the database instead of re-scraping.",
+    )
 
     st.divider()
     st.markdown("**How it works**")
@@ -235,11 +246,11 @@ with col_btn:
 # ---------------------------------------------------------------------------
 
 if search and query.strip():
+    params = SearchParams(
+        query=query.strip(), pages=pages, ai_limit=ai_limit,
+        min_price=min_price, deep_scan=deep_scan, use_cache=not fresh_scan,
+    )
     if queue_enabled():
-        params = SearchParams(
-            query=query.strip(), pages=pages, ai_limit=ai_limit,
-            min_price=min_price, deep_scan=deep_scan,
-        )
         job = enqueue_search(params)
         st.session_state["job"] = {"id": job.id, "query": query.strip()}
         st.session_state.pop("results", None)
@@ -247,13 +258,13 @@ if search and query.strip():
         duration = "2-4 minutes" if deep_scan else "30-60 seconds"
         with st.spinner(f"Scanning Finn.no for '{query}' and running AI analysis... This takes about {duration}, please wait."):
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                future = ex.submit(run_pipeline, query.strip(), pages, ai_limit, min_price, deep_scan)
+                future = ex.submit(run_pipeline, params)
                 try:
-                    report, top = future.result()
+                    result = future.result()
                 except Exception as e:
                     st.error(f"An error occurred: {e}")
                     st.stop()
-        st.session_state["results"] = {"query": query.strip(), "report": report, "top": top}
+        st.session_state["results"] = _result_state(query.strip(), result)
 
 # Poll a queued job (worker mode only) until it finishes or fails
 pending = st.session_state.get("job")
@@ -264,9 +275,7 @@ if pending:
         st.session_state.pop("job", None)
     elif job.is_finished:
         result = job_result(job)
-        st.session_state["results"] = {
-            "query": pending["query"], "report": result.report, "top": result.top,
-        }
+        st.session_state["results"] = _result_state(pending["query"], result)
         st.session_state.pop("job", None)
     elif job.is_failed:
         st.error("The search failed on the worker. Check the worker logs.")
@@ -365,6 +374,13 @@ if results is not None:
 
     # --- Stat cards ---
     st.subheader(f"📊 Market Summary — {results['query']}")
+    if results.get("from_cache"):
+        scanned = results.get("scanned_at")
+        when = scanned.strftime("%Y-%m-%d %H:%M") if scanned else "recently"
+        st.caption(
+            f"⚡ Served from cache (scanned {when}) — "
+            "enable **Force fresh scan** in the sidebar for a new scan."
+        )
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Listings", report.count)
     c2.metric("Mean", _fmt_price(int(report.mean)))
