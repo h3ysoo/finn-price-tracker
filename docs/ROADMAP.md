@@ -1,0 +1,155 @@
+# ROADMAP — From Personal Tool to Public Web Service
+
+> **Purpose of this document.** This is a self-contained handoff plan. It gives any
+> developer — or any AI assistant session with no prior context — everything needed
+> to continue turning finn-price-tracker into a publicly deployable web service.
+> Work through the phases in order; each phase leaves the app in a working state.
+
+## Context: what this project is today
+
+finn-price-tracker scrapes **Finn.no** (Norwegian second-hand marketplace),
+runs statistical price analysis, tracks price history in SQLite, and evaluates
+top listings with **Claude Vision** (structured output via a forced tool call).
+It has a CLI (`main.py`) and a Streamlit UI (`app.py`). See `README.md` for
+features and project structure. Owner: GitHub user **h3ysoo**, repo
+`h3ysoo/finn-price-tracker`, branch `main`.
+
+### Working conventions (follow these when continuing)
+
+- Commits go **directly to `main`**, in **English**, one focused commit per change.
+- Always `git fetch origin` and rebase/pull before pushing — multiple
+  sessions/machines push to this repo and it has diverged before.
+- Tests must pass before every push: `python -m pytest tests/` (CI runs them on
+  Python 3.11 & 3.12, including a Playwright/Chromium fixture test).
+- Real secrets live only in `.env` (gitignored). `.env.example` holds
+  placeholders only — never put a real key in it.
+- The Streamlit UI is verified by seeding a temporary `data/listings.db` with
+  demo listings, viewing the app, then deleting the demo DB.
+
+### Why it is NOT publicly deployable as-is
+
+1. **In-process scraping.** Each search launches headless Chromium inside the
+   web process (300–500 MB RAM, 30 s–4 min). A handful of concurrent users
+   exhausts any small server.
+2. **Single API key, no auth, no quotas.** Every visitor's Claude Vision
+   analysis bills the owner's `ANTHROPIC_API_KEY`; abuse is trivial.
+3. **Legal exposure.** Personal scraping ≠ operating a scraping service for
+   the public. `README.md` explicitly scopes the project to personal/
+   educational use. Finn.no's ToS applies.
+4. **Single server IP.** All scrapes from one datacenter IP will likely get
+   blocked quickly (locally, each user scrapes from their own residential IP).
+5. **SQLite, one shared file.** No user separation, poor concurrent-write
+   behavior, all visitors would see each other's searches.
+
+---
+
+## Phase 0 — Decisions before any code (BLOCKING)
+
+- [ ] **Legal check.** Research Finn.no's current Terms of Service and their
+      official API / partner program (Schibsted/FINN API). Decide: proceed with
+      polite scraping + caching, switch to an official API, or restrict the
+      public product to *bring-your-own-instance* (self-hosted). Document the
+      decision here. **Do not skip** — everything downstream depends on it.
+- [ ] **Audience model.** Recommended first step: invite-only / password-protected
+      deployment for the owner and a few friends, not an open site.
+- [ ] **Hosting.** Pick a Docker-capable host (e.g. Hetzner VPS, Fly.io,
+      Railway). Needs ≥ 2 GB RAM for one browser worker. Streamlit Community
+      Cloud is NOT suitable (RAM limits, no background workers).
+- [ ] **Budget.** Set a monthly Anthropic spend cap and a per-user quota target.
+
+## Phase 1 — Containerize (app still single-user)
+
+Goal: the current app runs identically in Docker; no behavior change.
+
+- [ ] `Dockerfile`: `python:3.12-slim` + `playwright install --with-deps chromium`
+      + `requirements.txt`. Run Streamlit as the entrypoint.
+- [ ] `docker-compose.yml`: services `web` (Streamlit), later `worker`, `db`
+      (Postgres), `redis`. Volumes for data.
+- [ ] Move all settings that differ per environment into env vars read by
+      `config.py` (`DATABASE_URL`, `AI_ANALYSIS_LIMIT`, etc. — keep current
+      defaults so local dev is unchanged).
+- [ ] CI: build the image in the existing GitHub Actions workflow
+      (`.github/workflows/ci.yml`).
+
+## Phase 2 — Job queue (kills problem #1)
+
+Goal: scraping never runs inside the web process.
+
+- [ ] Extract the pipeline in `app.py::_pipeline` (search → filter →
+      `analyze_prices` → `score_listings` → `select_candidates` →
+      `enrich_all` → `analyze_top_listings` → `save_listings`) into a module
+      both CLI and worker share, e.g. `pipeline.py`.
+- [ ] Add **RQ + Redis** (simplest) or Celery. Worker executes pipeline jobs;
+      web enqueues and polls a `jobs` table/queue for status + progress.
+- [ ] Worker concurrency = 1–2 browser instances max; reuse one Playwright
+      browser across jobs (see `scraper/finn_scraper.py::FinnScraper` — it
+      already keeps one shared BrowserContext per run).
+- [ ] Streamlit UI: replace the blocking spinner with job status polling
+      (`st.status` + `st.rerun` on an interval), keep results in
+      `st.session_state` as today.
+
+## Phase 3 — Postgres + result caching (kills problem #5, halves scraping)
+
+- [ ] Replace SQLite with Postgres. `database/db.py` is a thin wrapper with
+      raw SQL — either port the SQL to `psycopg` or introduce SQLAlchemy Core.
+      Schema to carry over: `listings` (PK `(id, query)`, incl.
+      `composite_score`, `battery_pct`, `is_active`) and `price_history`
+      (`listing_id, query, price, seen_at`). Keep the existing test suite green
+      by parameterizing the DB URL (tests currently use a tmp SQLite path —
+      run them against Postgres in CI via a service container).
+- [ ] **Query result cache:** if the same query was scanned less than N hours
+      ago (e.g. 6h), serve stored results instead of scraping again. This is
+      the single biggest cost/IP-risk reducer for a multi-user site.
+- [ ] Add `user_id` scoping: searches belong to users; listings/history remain
+      shared (they're public market data) but "saved searches" views become
+      per-user.
+
+## Phase 4 — Auth, quotas, cost control (kills problem #2)
+
+- [ ] Authentication: `streamlit-authenticator` (quickest) or move the web
+      layer to FastAPI + a real frontend later. Start invite-only.
+- [ ] Per-user daily quotas: max searches/day and max AI analyses/day,
+      enforced server-side in the job queue, not in the UI.
+- [ ] Global monthly budget guard: stop AI analysis (scraping can continue)
+      when the configured spend cap is reached. Log token usage per job
+      (`response.usage`) to compute spend.
+- [ ] Optional: let users paste their **own** Anthropic API key (stored
+      encrypted, or session-only) to run AI analysis on their own budget.
+
+## Phase 5 — Scraping resilience & etiquette (mitigates #3, #4)
+
+- [ ] One **global** rate limiter across all users (the job queue makes this
+      natural — a single worker already serializes). Keep the existing
+      randomized delays (`REQUEST_DELAY_MIN/MAX` in `config.py`).
+- [ ] Cache-first policy from Phase 3 so identical queries never re-scrape
+      within the cache window.
+- [ ] Block detection: watch for 429s/captcha pages in
+      `scraper/finn_scraper.py`, back off exponentially, alert the owner.
+      The retry helper `FinnScraper._goto_with_retry` is the hook point.
+- [ ] IP strategy — decide one: (a) accept the risk on a single IP with heavy
+      caching, (b) reputable rotating proxy provider, or (c) pivot: keep the
+      hosted site as a **viewer** of shared data and ship scraping as a small
+      local agent users run themselves. Option (c) is the most ToS-friendly.
+- [ ] Revisit the README disclaimer wording once the model is chosen.
+
+## Phase 6 — Production operations
+
+- [ ] Reverse proxy with HTTPS (Caddy or Traefik) + domain.
+- [ ] Nightly Postgres backups; test a restore once.
+- [ ] Error tracking (Sentry) for web + worker; uptime monitoring.
+- [ ] Deploy workflow: GitHub Actions builds the image and deploys on push to
+      `main` (after tests pass).
+- [ ] Load test with 5–10 simulated users before inviting anyone.
+
+---
+
+## Suggested order of attack for a continuing session
+
+Phases 1→2 are pure engineering and safe to start immediately; Phase 0's legal
+research can run in parallel and **must** conclude before the site goes public.
+Each phase should land as a series of small commits on `main` with tests.
+
+Key files to read first when picking this up cold:
+`README.md`, `app.py` (`_pipeline`), `scraper/finn_scraper.py` (`FinnScraper`),
+`database/db.py` (`Database`), `analyzer/ai_analyzer.py`
+(`analyze_top_listings`), `config.py`, `tests/`.
