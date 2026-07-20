@@ -23,3 +23,16 @@ jobs:
         run: python -m playwright install --with-deps chromium
       - name: Run tests
         run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: finn-price-tracker:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
