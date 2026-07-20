@@ -65,16 +65,22 @@ Opens at `http://localhost:8501`:
 
 ## Docker
 
-Run the web UI in a container (bundles Playwright + Chromium):
+Run the full stack — web UI, a search worker, and Redis — in containers:
 
 ```bash
 cp .env.example .env      # add your ANTHROPIC_API_KEY
 docker compose up --build
 ```
 
-Opens at `http://localhost:8501`. Scraped data persists in the `finn-data`
-volume. Configuration is env-var driven (see `config.py`), so
+Opens at `http://localhost:8501`. In this setup searches are **queued**: the
+web container never launches a browser; an RQ worker container picks jobs off
+Redis, runs the Playwright scrape + AI analysis, and the page polls its
+progress. Scraped data persists in the `finn-data` volume shared by web and
+worker. Configuration is env-var driven (see `config.py`), so
 `docker-compose.yml` / `.env` can override the model, limits, and data paths.
+
+Running `streamlit run app.py` directly (no `REDIS_URL`) skips the queue and
+runs searches in-process — no Redis needed for local development.
 
 ## CLI Usage
 

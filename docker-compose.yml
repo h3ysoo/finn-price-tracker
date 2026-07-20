@@ -7,9 +7,37 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /app/data
+      REDIS_URL: redis://redis:6379/0
     volumes:
       - finn-data:/app/data
+    depends_on:
+      - redis
     restart: unless-stopped
+
+  # Executes search jobs (Playwright browser runs HERE, not in web).
+  # One worker process = one job at a time; scale with --scale worker=2
+  # only if the host has RAM for a second Chromium.
+  worker:
+    build: .
+    command: ["rq", "worker", "searches", "--url", "redis://redis:6379/0"]
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - finn-data:/app/data
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   finn-data:
