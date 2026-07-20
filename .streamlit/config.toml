@@ -1,0 +1,8 @@
+# Finn.no-inspired light theme: white surface, cool gray panels, Finn blue accent
+[theme]
+base = "light"
+primaryColor = "#0063FB"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1F4F9"
+textColor = "#111827"
+font = "sans serif"

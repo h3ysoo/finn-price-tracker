@@ -181,8 +181,53 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("📱 Finn.no — Second-Hand Phone Analysis")
-st.caption("Scan Finn.no listings, compare prices, and find the best deal with AI.")
+# Hero header — Finn-blue gradient with feature chips
+st.markdown(
+    """
+    <style>
+    .fpt-hero {
+        background: linear-gradient(120deg, #0063FB 0%, #0A2E6E 100%);
+        border-radius: 14px;
+        padding: 1.6rem 2rem 1.4rem 2rem;
+        margin-bottom: 1.2rem;
+    }
+    .fpt-hero h1 {
+        color: #FFFFFF;
+        font-size: 1.9rem;
+        font-weight: 700;
+        margin: 0 0 .25rem 0;
+        padding: 0;
+    }
+    .fpt-hero p {
+        color: #C9DCFF;
+        margin: 0;
+        font-size: .98rem;
+    }
+    .fpt-hero .chips { margin-top: .85rem; }
+    .fpt-hero .chip {
+        display: inline-block;
+        background: rgba(255, 255, 255, .13);
+        border: 1px solid rgba(255, 255, 255, .22);
+        color: #FFFFFF;
+        border-radius: 999px;
+        padding: .16rem .72rem;
+        font-size: .78rem;
+        margin: 0 .35rem .35rem 0;
+    }
+    </style>
+    <div class="fpt-hero">
+        <h1>📱 Finn Price Tracker</h1>
+        <p>Scan Finn.no listings, compare market prices, and let Claude spot the best deal.</p>
+        <div class="chips">
+            <span class="chip">⚡ Live scraping</span>
+            <span class="chip">📊 Market stats</span>
+            <span class="chip">🤖 Claude Vision</span>
+            <span class="chip">📉 Price history</span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------------------------------------------------------------------------
 # Sidebar (settings)
