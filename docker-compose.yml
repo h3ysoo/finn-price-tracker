@@ -1,0 +1,15 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8501:8501"
+    # ANTHROPIC_API_KEY (and any config overrides) come from .env
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - finn-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  finn-data:

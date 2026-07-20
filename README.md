@@ -63,6 +63,19 @@ Opens at `http://localhost:8501`:
 - **Deep scan** toggle: read every listing's detail page for more accurate
   scores (slower), or only the AI candidates' pages (~10x faster)
 
+## Docker
+
+Run the web UI in a container (bundles Playwright + Chromium):
+
+```bash
+cp .env.example .env      # add your ANTHROPIC_API_KEY
+docker compose up --build
+```
+
+Opens at `http://localhost:8501`. Scraped data persists in the `finn-data`
+volume. Configuration is env-var driven (see `config.py`), so
+`docker-compose.yml` / `.env` can override the model, limits, and data paths.
+
 ## CLI Usage
 
 ```bash
