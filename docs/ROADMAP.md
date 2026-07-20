@@ -57,28 +57,25 @@ features and project structure. Owner: GitHub user **h3ysoo**, repo
       Cloud is NOT suitable (RAM limits, no background workers).
 - [ ] **Budget.** Set a monthly Anthropic spend cap and a per-user quota target.
 
-## Phase 1 — Containerize (app still single-user)
+## Phase 1 — Containerize (app still single-user) — ✅ DONE
 
 Goal: the current app runs identically in Docker; no behavior change.
 
-- [ ] `Dockerfile`: `python:3.12-slim` + `playwright install --with-deps chromium`
-      + `requirements.txt`. Run Streamlit as the entrypoint.
-- [ ] `docker-compose.yml`: services `web` (Streamlit), later `worker`, `db`
-      (Postgres), `redis`. Volumes for data.
-- [ ] Move all settings that differ per environment into env vars read by
-      `config.py` (`DATABASE_URL`, `AI_ANALYSIS_LIMIT`, etc. — keep current
-      defaults so local dev is unchanged).
-- [ ] CI: build the image in the existing GitHub Actions workflow
-      (`.github/workflows/ci.yml`).
+- [x] `Dockerfile`: `python:3.12-slim` + `playwright install --with-deps chromium`
+      + `requirements.txt`. Non-root user, health check, Streamlit entrypoint.
+- [x] `docker-compose.yml`: `web` service + persistent `finn-data` volume,
+      `.env`-driven config. (`worker`/`db`/`redis` services added in Phase 2/3.)
+- [x] Env-var config in `config.py` (`DATA_DIR`, `DB_PATH`, `CLAUDE_MODEL`,
+      limits, delays) with current values as defaults.
+- [x] CI builds the image (`docker` job in `.github/workflows/ci.yml`).
 
-## Phase 2 — Job queue (kills problem #1)
+## Phase 2 — Job queue (kills problem #1) — IN PROGRESS
 
 Goal: scraping never runs inside the web process.
 
-- [ ] Extract the pipeline in `app.py::_pipeline` (search → filter →
-      `analyze_prices` → `score_listings` → `select_candidates` →
-      `enrich_all` → `analyze_top_listings` → `save_listings`) into a module
-      both CLI and worker share, e.g. `pipeline.py`.
+- [x] Extract the pipeline into `pipeline.py` — `SearchParams` / `SearchResult`
+      + `run_search` (async) / `run_search_sync`, with a `progress` callback.
+      Both `app.py` and `main.py` now drive it. This is the seam the worker calls.
 - [ ] Add **RQ + Redis** (simplest) or Celery. Worker executes pipeline jobs;
       web enqueues and polls a `jobs` table/queue for status + progress.
 - [ ] Worker concurrency = 1–2 browser instances max; reuse one Playwright
@@ -150,6 +147,15 @@ research can run in parallel and **must** conclude before the site goes public.
 Each phase should land as a series of small commits on `main` with tests.
 
 Key files to read first when picking this up cold:
-`README.md`, `app.py` (`_pipeline`), `scraper/finn_scraper.py` (`FinnScraper`),
-`database/db.py` (`Database`), `analyzer/ai_analyzer.py`
+`README.md`, `pipeline.py` (`run_search` — the shared pipeline),
+`app.py` (UI driving `run_search_sync`), `scraper/finn_scraper.py`
+(`FinnScraper`), `database/db.py` (`Database`), `analyzer/ai_analyzer.py`
 (`analyze_top_listings`), `config.py`, `tests/`.
+
+## Progress log
+
+- **Phase 1 complete** (env-var config, Dockerfile + compose, CI image build).
+- **Phase 2 started**: pipeline extracted to `pipeline.py`; both UI and CLI
+  use it. **Next step: add RQ + Redis**, move `run_search` into a worker job,
+  and make the Streamlit UI enqueue + poll instead of blocking. Add `worker`
+  and `redis` services to `docker-compose.yml` at that point.
