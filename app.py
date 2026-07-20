@@ -65,25 +65,14 @@ def _render_listings_table(listings: list[Listing]) -> None:
         if l.location:
             city = l.location.split(",")[0].strip()
 
-        cscore = l.composite_score
-        if cscore is not None:
-            if cscore >= 70:
-                score_label = f"🟢 {cscore}"
-            elif cscore >= 50:
-                score_label = f"🟡 {cscore}"
-            else:
-                score_label = f"🔴 {cscore}"
-        else:
-            score_label = "—"
-
         rows.append({
-            "Score": score_label,
+            "Score": l.composite_score,
             "📍 City": city,
             "Title": l.title,
             "Price (kr)": l.price_nok or 0,
             "Market Diff": f"{l.price_score:+.1f}%" if l.price_score is not None else "—",
             "Storage": storage or "—",
-            "Battery": f"{battery}%" if battery else "—",
+            "Battery": battery,
             "AI Condition": f"{l.ai_report.condition_score}/10" if l.ai_report else "—",
             "Link": l.url,
         })
@@ -95,7 +84,13 @@ def _render_listings_table(listings: list[Listing]) -> None:
         column_config={
             "Link": st.column_config.LinkColumn("Link", display_text="Open →"),
             "Price (kr)": st.column_config.NumberColumn(format="%d kr"),
-            "Score": st.column_config.TextColumn("⭐ Score", width="small"),
+            # Bar length encodes the value — quicker to scan than emoji labels
+            "Score": st.column_config.ProgressColumn(
+                "⭐ Score", min_value=0, max_value=100, format="%.0f",
+            ),
+            "Battery": st.column_config.ProgressColumn(
+                "🔋 Battery", min_value=0, max_value=100, format="%d%%",
+            ),
             "📍 City": st.column_config.TextColumn(width="small"),
         },
         column_order=["Score", "📍 City", "Title", "Price (kr)", "Market Diff",
@@ -299,6 +294,23 @@ if results is None:
     if drops:
         st.subheader("📉 Price Drops")
         st.caption("Listings still online whose price dropped since the previous scan.")
+
+        # Biggest drops as KPI tiles — the headline is the new price, the
+        # delta shows how far it fell (inverse: a drop is good news → green)
+        tiles = drops[:3]
+        tile_cols = st.columns(len(tiles))
+        for col, (l, prev_price) in zip(tile_cols, tiles):
+            pct = (prev_price - (l.price_nok or 0)) / prev_price * 100
+            label = l.title if len(l.title) <= 32 else l.title[:31] + "…"
+            with col:
+                st.metric(
+                    label,
+                    _fmt_price(l.price_nok),
+                    delta=f"-{pct:.1f}% ({_fmt_price(prev_price)})",
+                    delta_color="inverse",
+                    help=l.title,
+                )
+
         drop_rows = []
         for l, prev_price in drops:
             pct = (prev_price - (l.price_nok or 0)) / prev_price * 100
