@@ -100,9 +100,11 @@ Goal: scraping never runs inside the web process.
       (`listing_id, query, price, seen_at`). Keep the existing test suite green
       by parameterizing the DB URL (tests currently use a tmp SQLite path —
       run them against Postgres in CI via a service container).
-- [ ] **Query result cache:** if the same query was scanned less than N hours
-      ago (e.g. 6h), serve stored results instead of scraping again. This is
-      the single biggest cost/IP-risk reducer for a multi-user site.
+- [x] **Query result cache:** `_load_cached` in `pipeline.py` serves stored
+      results when the query was scanned within `SEARCH_CACHE_TTL_HOURS`
+      (default 6 h, 0 disables). `SearchParams.use_cache=False` / CLI
+      `--fresh` / web "Force fresh scan" bypass it; results are labeled with
+      the scan time. Tested in `tests/test_cache.py`.
 - [ ] Add `user_id` scoping: searches belong to users; listings/history remain
       shared (they're public market data) but "saved searches" views become
       per-user.
@@ -166,6 +168,10 @@ Key files to read first when picking this up cold:
   enqueue+poll, and compose now runs `web` + `worker` + `redis`.
   Outstanding: one live `docker compose up` validation on a Docker-capable
   machine (see the checkbox in Phase 2).
-- **Next: Phase 3** — Postgres migration + query-result caching. Start with
-  the cache (serve results scanned < N hours ago without re-scraping); it is
-  independent of the DB engine and delivers the biggest cost/IP-risk win.
+- **Phase 3 cache done**: query-result cache live in the shared pipeline with
+  CLI/web overrides, verified end-to-end in the UI (instant cached results,
+  labeled with scan time).
+- **Next:** the two remaining Phase 3 items — the Postgres migration
+  (parameterize `database/db.py` on a DB URL; run the existing suite against
+  a Postgres service container in CI) and `user_id` scoping (do it together
+  with Phase 4 auth, since it needs a user model).
