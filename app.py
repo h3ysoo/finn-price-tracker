@@ -1,7 +1,6 @@
 """Finn.no phone price analysis — Streamlit UI."""
 from __future__ import annotations
 
-import asyncio
 import concurrent.futures
 import re
 import sys
@@ -17,11 +16,10 @@ load_dotenv()
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from analyzer import analyze_prices, analyze_top_listings, select_candidates, score_listings
-from config import AI_ANALYSIS_LIMIT, LISTING_MIN_PRICE
+from config import LISTING_MIN_PRICE
 from database import Database
-from models import Listing, PriceReport
-from scraper import FinnScraper, filter_listings
+from models import Listing
+from pipeline import SearchParams, run_search_sync
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -112,58 +110,17 @@ def _score_color(score: Optional[float]) -> str:
     return "gray"
 
 
-# ---------------------------------------------------------------------------
-# Scraper pipeline (sync wrapper — run inside Streamlit with asyncio.run)
-# ---------------------------------------------------------------------------
-
-async def _pipeline(
-    query: str,
-    pages: int,
-    ai_limit: int,
-    min_price: int,
-    deep_scan: bool,
-) -> tuple[Optional[PriceReport], list[Listing]]:
-    async with FinnScraper(headless=True) as scraper:
-        listings = await scraper.search(query, pages=pages)
-        if not listings:
-            return None, []
-
-        listings = filter_listings(listings, min_price=min_price)
-        if not listings:
-            return None, []
-
-        # Deep scan visits every listing's detail page (in parallel).
-        # Fast mode only fetches detail pages for AI candidates — ~10x faster.
-        if deep_scan:
-            await scraper.enrich_all(listings, concurrency=3)
-
-        # Price analysis (compute price_score)
-        report = analyze_prices(listings)
-
-        # Composite score: price + battery + content quality
-        score_listings(listings)
-
-        # Pick the highest-scoring candidates for AI analysis
-        top = select_candidates(report, limit=ai_limit)
-        if top:
-            if not deep_scan:
-                await scraper.enrich_all(top, concurrency=3)
-                # Candidates now have full descriptions — refresh scores
-                score_listings(listings)
-            await analyze_top_listings(top, limit=ai_limit)
-
-        # Persist results — price history accumulates here too.
-        # Listings absent from a partial scan are NOT marked as sold.
-        Database().save_listings(
-            report.listings, prune_missing=scraper.last_search_complete
-        )
-
-        return report, top
+# The search pipeline itself lives in pipeline.py (shared with the CLI and a
+# future job worker); the UI only builds params and renders the result.
 
 
 def run_pipeline(query, pages, ai_limit, min_price, deep_scan):
-    # asyncio.run already defaults to ProactorEventLoop on Windows (3.8+)
-    return asyncio.run(_pipeline(query, pages, ai_limit, min_price, deep_scan))
+    params = SearchParams(
+        query=query, pages=pages, ai_limit=ai_limit,
+        min_price=min_price, deep_scan=deep_scan,
+    )
+    result = run_search_sync(params)
+    return result.report, result.top
 
 
 # ---------------------------------------------------------------------------

@@ -24,11 +24,10 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from analyzer import analyze_prices, analyze_top_listings, score_listings, select_candidates
-from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES, LISTING_MIN_PRICE
+from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES
 from database import Database
 from models import Listing, PriceReport
-from scraper import FinnScraper, scrape_finn, filter_listings
+from pipeline import SearchParams, run_search
 
 console = Console()
 
@@ -137,71 +136,38 @@ def _render_ai_details(listings: list[Listing]) -> None:
 # --- Commands ----------------------------------------------------------------
 
 async def cmd_search(args: argparse.Namespace) -> int:
-    query: str = args.query
-    pages: int = args.pages
     ai_limit: int = args.ai_limit
+    console.rule(f"[bold]Finn.no search: '{args.query}'[/bold]")
 
-    console.rule(f"[bold]Finn.no search: '{query}'[/bold]")
+    params = SearchParams(
+        query=args.query,
+        pages=args.pages,
+        ai_limit=ai_limit,
+        deep_scan=args.deep_scan,
+    )
 
-    report = None
-    top: list = []
-    scan_complete = False
+    def progress(stage: str) -> None:
+        console.print(f"[cyan]›[/cyan] {stage}...")
 
     try:
-        async with FinnScraper(headless=not args.show_browser) as scraper:
-            # 1. Scrape search result pages
-            with console.status("[cyan]Scanning Finn.no..."):
-                listings = await scraper.search(query, pages=pages)
-            scan_complete = scraper.last_search_complete
-
-            if not listings:
-                console.print("[yellow]No listings found.[/yellow]")
-                return 1
-
-            console.print(f"[green]✓[/green] Fetched {len(listings)} listings.")
-
-            # 2. Filter out irrelevant listings
-            listings = filter_listings(listings, min_price=LISTING_MIN_PRICE)
-            if not listings:
-                console.print("[yellow]No listings remain after filtering.[/yellow]")
-                return 1
-
-            # 3. Price analysis (prices from search cards are enough)
-            report = analyze_prices(listings)
-
-            # Composite score — same as Streamlit: without composite_score,
-            # select_candidates only looks at price and the DB stores an empty score
-            score_listings(listings)
-
-            # 4. Pick AI candidates and fetch detail pages for those only.
-            #    Enriching every listing was 10x slower and, in the CLI flow,
-            #    detail pages are only used for AI analysis.
-            top = select_candidates(report, limit=ai_limit)
-            if top:
-                with console.status(f"[cyan]Reading detail pages for {len(top)} candidate listings..."):
-                    await scraper.enrich_all(top, concurrency=3)
-
+        # Shared pipeline: scrape → filter → score → AI → persist (pipeline.py)
+        result = await run_search(params, progress, headless=not args.show_browser)
     except Exception as e:
         console.print(f"[red]Scraper error:[/red] {e}")
         return 2
 
-    if report is None:
+    if result.is_empty:
+        console.print("[yellow]No listings found (or none left after filtering).[/yellow]")
         return 1
 
+    report = result.report
+    top = result.top
+
     _render_report(report)
-
-    # 5. AI analysis (cheapest N with fetched detail pages)
-    if ai_limit > 0 and top:
-        with console.status(f"[cyan]Running AI analysis on {len(top)} listings..."):
-            await analyze_top_listings(top, limit=ai_limit)
-
     _render_listings(report.listings[: max(20, ai_limit)], title="Listings (cheapest first)")
     _render_ai_details(top)
 
-    # Persist to DB — don't mark missing listings as sold on a partial scan
-    db = Database()
-    saved = db.save_listings(report.listings, prune_missing=scan_complete)
-    console.print(f"[green]✓[/green] {saved} records written to DB: {db.path}")
+    console.print(f"[green]✓[/green] {report.count} listings saved to DB: {Database().path}")
     return 0
 
 
@@ -353,6 +319,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--pages", type=int, default=DEFAULT_PAGES)
     sp.add_argument("--ai-limit", type=int, default=AI_ANALYSIS_LIMIT)
     sp.add_argument("--show-browser", action="store_true", help="Run without headless mode")
+    sp.add_argument("--deep-scan", action="store_true",
+                    help="Read every listing's detail page (more accurate scores, slower)")
 
     dp = sub.add_parser("deals", help="List the best deals from the DB")
     dp.add_argument("--limit", type=int, default=10)
