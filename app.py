@@ -4,6 +4,7 @@ from __future__ import annotations
 import concurrent.futures
 import re
 import sys
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import LISTING_MIN_PRICE
 from database import Database
+from jobs import enqueue_search, fetch_job, job_result, job_stage, queue_enabled
 from models import Listing
 from pipeline import SearchParams, run_search_sync
 
@@ -225,20 +227,54 @@ with col_btn:
 
 # ---------------------------------------------------------------------------
 # Search pipeline — results live in session_state so a rerun triggered by a
-# slider or checkbox does not throw away the 2-4 min scan result
+# slider or checkbox does not throw away the 2-4 min scan result.
+#
+# With REDIS_URL set (Docker), the search is enqueued to the RQ worker and
+# this process only polls — no browser ever runs inside the web process.
+# Without it (local dev), the pipeline runs in-process as before.
 # ---------------------------------------------------------------------------
 
 if search and query.strip():
-    duration = "2-4 minutes" if deep_scan else "30-60 seconds"
-    with st.spinner(f"Scanning Finn.no for '{query}' and running AI analysis... This takes about {duration}, please wait."):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-            future = ex.submit(run_pipeline, query.strip(), pages, ai_limit, min_price, deep_scan)
-            try:
-                report, top = future.result()
-            except Exception as e:
-                st.error(f"An error occurred: {e}")
-                st.stop()
-    st.session_state["results"] = {"query": query.strip(), "report": report, "top": top}
+    if queue_enabled():
+        params = SearchParams(
+            query=query.strip(), pages=pages, ai_limit=ai_limit,
+            min_price=min_price, deep_scan=deep_scan,
+        )
+        job = enqueue_search(params)
+        st.session_state["job"] = {"id": job.id, "query": query.strip()}
+        st.session_state.pop("results", None)
+    else:
+        duration = "2-4 minutes" if deep_scan else "30-60 seconds"
+        with st.spinner(f"Scanning Finn.no for '{query}' and running AI analysis... This takes about {duration}, please wait."):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                future = ex.submit(run_pipeline, query.strip(), pages, ai_limit, min_price, deep_scan)
+                try:
+                    report, top = future.result()
+                except Exception as e:
+                    st.error(f"An error occurred: {e}")
+                    st.stop()
+        st.session_state["results"] = {"query": query.strip(), "report": report, "top": top}
+
+# Poll a queued job (worker mode only) until it finishes or fails
+pending = st.session_state.get("job")
+if pending:
+    job = fetch_job(pending["id"])
+    if job is None:
+        st.error("The search job expired or was lost — please search again.")
+        st.session_state.pop("job", None)
+    elif job.is_finished:
+        result = job_result(job)
+        st.session_state["results"] = {
+            "query": pending["query"], "report": result.report, "top": result.top,
+        }
+        st.session_state.pop("job", None)
+    elif job.is_failed:
+        st.error("The search failed on the worker. Check the worker logs.")
+        st.session_state.pop("job", None)
+    else:
+        st.info(f"⏳ {job_stage(job)}... (searching '{pending['query']}' in the background)")
+        time.sleep(2)
+        st.rerun()
 
 results = st.session_state.get("results")
 
