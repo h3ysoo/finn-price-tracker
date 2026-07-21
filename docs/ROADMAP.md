@@ -93,13 +93,12 @@ Goal: scraping never runs inside the web process.
 
 ## Phase 3 — Postgres + result caching (kills problem #5, halves scraping)
 
-- [ ] Replace SQLite with Postgres. `database/db.py` is a thin wrapper with
-      raw SQL — either port the SQL to `psycopg` or introduce SQLAlchemy Core.
-      Schema to carry over: `listings` (PK `(id, query)`, incl.
-      `composite_score`, `battery_pct`, `is_active`) and `price_history`
-      (`listing_id, query, price, seen_at`). Keep the existing test suite green
-      by parameterizing the DB URL (tests currently use a tmp SQLite path —
-      run them against Postgres in CI via a service container).
+- [x] Replace SQLite with Postgres: `database/db.py` now runs on SQLAlchemy —
+      SQLite at `DB_PATH` by default (zero-setup local dev), Postgres when
+      `DATABASE_URL` is set (the compose stack does; `db` service +
+      `pgdata` volume). Dialect-sensitive SQL is covered by
+      `tests/test_postgres.py`, which CI runs against a postgres:16 service
+      container (locally it skips without `TEST_DATABASE_URL`).
 - [x] **Query result cache:** `_load_cached` in `pipeline.py` serves stored
       results when the query was scanned within `SEARCH_CACHE_TTL_HOURS`
       (default 6 h, 0 disables). `SearchParams.use_cache=False` / CLI
@@ -171,7 +170,12 @@ Key files to read first when picking this up cold:
 - **Phase 3 cache done**: query-result cache live in the shared pipeline with
   CLI/web overrides, verified end-to-end in the UI (instant cached results,
   labeled with scan time).
-- **Next:** the two remaining Phase 3 items — the Postgres migration
-  (parameterize `database/db.py` on a DB URL; run the existing suite against
-  a Postgres service container in CI) and `user_id` scoping (do it together
-  with Phase 4 auth, since it needs a user model).
+- **Phase 3 essentially complete**: result cache + SQLAlchemy data layer
+  with Postgres in compose and CI. Remaining Phase 3 item (`user_id`
+  scoping) is deferred into Phase 4 since it needs the user model.
+- **Next: Phase 4** — auth + quotas. Suggested order: (1) invite-only login
+  (streamlit-authenticator), (2) per-user daily search/AI quotas enforced in
+  `jobs.py` / the worker, (3) monthly AI budget guard using
+  `response.usage` token logging in `analyzer/ai_analyzer.py`.
+- Reminder: the live `docker compose up` validation (Phase 2 checkbox) is
+  still outstanding — now it also covers the Postgres service.
