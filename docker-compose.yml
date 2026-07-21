@@ -8,10 +8,14 @@ services:
     environment:
       DATA_DIR: /app/data
       REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://finn:finn@db:5432/finn
     volumes:
       - finn-data:/app/data
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   # Executes search jobs (Playwright browser runs HERE, not in web).
@@ -24,10 +28,14 @@ services:
     environment:
       DATA_DIR: /app/data
       REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+psycopg://finn:finn@db:5432/finn
     volumes:
       - finn-data:/app/data
     depends_on:
-      - redis
+      redis:
+        condition: service_started
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   redis:
@@ -39,5 +47,21 @@ services:
       timeout: 3s
       retries: 5
 
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: finn
+      POSTGRES_PASSWORD: finn
+      POSTGRES_DB: finn
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U finn"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
 volumes:
   finn-data:
+  pgdata:

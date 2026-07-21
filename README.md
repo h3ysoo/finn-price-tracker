@@ -78,12 +78,13 @@ docker compose up --build
 Opens at `http://localhost:8501`. In this setup searches are **queued**: the
 web container never launches a browser; an RQ worker container picks jobs off
 Redis, runs the Playwright scrape + AI analysis, and the page polls its
-progress. Scraped data persists in the `finn-data` volume shared by web and
-worker. Configuration is env-var driven (see `config.py`), so
-`docker-compose.yml` / `.env` can override the model, limits, and data paths.
+progress. Data lives in **Postgres** (the `db` service, persisted in the
+`pgdata` volume). Configuration is env-var driven (see `config.py`), so
+`docker-compose.yml` / `.env` can override the model, limits, and URLs.
 
-Running `streamlit run app.py` directly (no `REDIS_URL`) skips the queue and
-runs searches in-process — no Redis needed for local development.
+Running `streamlit run app.py` directly (no `REDIS_URL` / `DATABASE_URL`)
+skips the queue and uses a local SQLite file — no services needed for local
+development.
 
 ## CLI Usage
 
