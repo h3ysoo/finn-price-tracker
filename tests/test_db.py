@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
 
+from sqlalchemy import text
+
 from database import Database
 from models import AIReport, Listing
 
@@ -26,8 +28,8 @@ def test_price_history_records_only_changes(tmp_path):
         rows = [
             (r["listing_id"], r["price"])
             for r in conn.execute(
-                "SELECT listing_id, price FROM price_history ORDER BY listing_id, seen_at"
-            )
+                text("SELECT listing_id, price FROM price_history ORDER BY listing_id, seen_at")
+            ).mappings()
         ]
     assert rows == [("111", 5000), ("111", 4200), ("222", 7000)]
 
@@ -113,8 +115,8 @@ def test_price_history_is_per_query(tmp_path):
         rows = [
             (r["query"], r["price"])
             for r in conn.execute(
-                "SELECT query, price FROM price_history ORDER BY query"
-            )
+                text("SELECT query, price FROM price_history ORDER BY query")
+            ).mappings()
         ]
     assert rows == [("iphone 13", 5000), ("iphone 13 pro", 4000)]
 
@@ -123,7 +125,7 @@ def test_unpriced_listing_not_in_history(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("333", None)])
     with db.connect() as conn:
-        n = conn.execute("SELECT COUNT(*) c FROM price_history").fetchone()["c"]
+        n = conn.execute(text("SELECT COUNT(*) AS c FROM price_history")).mappings().fetchone()["c"]
     assert n == 0
 
 
