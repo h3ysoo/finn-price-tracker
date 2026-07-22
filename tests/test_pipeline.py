@@ -3,7 +3,14 @@ import asyncio
 import pipeline
 from database import Database
 from models import Listing
-from pipeline import SearchParams, run_search
+from pipeline import SearchParams, normalize_query, run_search
+
+
+def test_normalize_query():
+    assert normalize_query("iPhone  13 Pro ") == "iphone 13 pro"
+    assert normalize_query("  MacBook\tAir M1") == "macbook air m1"
+    assert normalize_query("brukt SYKKEL") == "brukt sykkel"
+    assert normalize_query("iphone 13") == "iphone 13"  # already canonical
 
 
 class FakeScraper:

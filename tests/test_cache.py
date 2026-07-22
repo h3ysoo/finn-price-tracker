@@ -101,6 +101,30 @@ def test_stale_results_trigger_a_new_scan(tmp_path, monkeypatch):
     assert not result.from_cache
 
 
+class StampingScraper(CountingScraper):
+    """Like the real scraper: stamps listings with the query it was given."""
+
+    async def search(self, query, pages):
+        self.search_calls += 1
+        out = [l.model_copy(deep=True) for l in self._listings]
+        for l in out:
+            l.query = query
+        return out
+
+
+def test_query_case_and_spacing_variants_share_the_cache(tmp_path, monkeypatch):
+    fake = StampingScraper([_mk(1, 5000)])
+    _patch(monkeypatch, tmp_path, fake)
+
+    r1 = asyncio.run(run_search(SearchParams(query="iPhone  13 ", ai_limit=1)))
+    r2 = asyncio.run(run_search(SearchParams(query="iphone 13", ai_limit=1)))
+
+    assert fake.search_calls == 1  # the variant hit the first scan's cache
+    assert r2.from_cache
+    # Rows are stored under the canonical form
+    assert r1.report.listings[0].query == "iphone 13"
+
+
 def test_different_query_is_not_cached(tmp_path, monkeypatch):
     fake = CountingScraper([_mk(1, 5000)])
     _patch(monkeypatch, tmp_path, fake)

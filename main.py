@@ -27,7 +27,7 @@ from rich.text import Text
 from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES
 from database import Database
 from models import Listing, PriceReport
-from pipeline import SearchParams, run_search
+from pipeline import SearchParams, normalize_query, run_search
 
 console = Console()
 
@@ -181,7 +181,9 @@ async def cmd_search(args: argparse.Namespace) -> int:
 
 def cmd_deals(args: argparse.Namespace) -> int:
     db = Database()
-    deals = db.get_best_deals(limit=args.limit, query=args.query)
+    deals = db.get_best_deals(
+        limit=args.limit, query=normalize_query(args.query) if args.query else None
+    )
     if not deals:
         console.print("[yellow]No records in DB. Run 'search' first.[/yellow]")
         return 1
@@ -193,7 +195,9 @@ def cmd_deals(args: argparse.Namespace) -> int:
 def cmd_drops(args: argparse.Namespace) -> int:
     """Show listings whose price dropped in the latest scan versus history."""
     db = Database()
-    drops = db.get_price_drops(limit=args.limit, query=args.query)
+    drops = db.get_price_drops(
+        limit=args.limit, query=normalize_query(args.query) if args.query else None
+    )
     if not drops:
         console.print(
             "[yellow]No price drops. Price history accumulates as you re-run the "
@@ -287,7 +291,7 @@ def _listing_to_export_row(l: Listing) -> dict:
 def cmd_export(args: argparse.Namespace) -> int:
     """Export stored listings for a query as CSV or JSON."""
     db = Database()
-    listings = db.get_by_query(args.query)
+    listings = db.get_by_query(normalize_query(args.query))
     if not listings:
         console.print(f"[yellow]No records for '{args.query}'. Run 'search' first.[/yellow]")
         return 1

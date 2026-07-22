@@ -8,7 +8,7 @@ callback reports stage transitions so a UI or worker can surface status.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Optional
 
@@ -30,6 +30,15 @@ from scraper import FinnScraper, filter_listings
 
 # Called with a short human-readable stage label; return value ignored.
 ProgressCallback = Callable[[str], None]
+
+
+def normalize_query(query: str) -> str:
+    """Canonical form of a search query: trimmed, single-spaced, casefolded.
+
+    'iPhone  13 ' and 'iphone 13' would otherwise create separate DB rows,
+    separate price histories, and miss each other's cache.
+    """
+    return " ".join(query.split()).casefold()
 
 
 @dataclass
@@ -97,6 +106,7 @@ async def run_search(
     `progress` receives stage labels; `persist` can be disabled for dry runs.
     """
     report_stage = progress or _noop
+    params = replace(params, query=normalize_query(params.query))
 
     if params.use_cache:
         cached = _load_cached(params)
