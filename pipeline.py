@@ -145,10 +145,14 @@ async def run_search(
 
         if persist:
             report_stage("Saving results")
+            db = Database()
             # A partial scan (didn't reach the end) must not prune listings.
-            Database().save_listings(
+            db.save_listings(
                 report.listings, prune_missing=scraper.last_search_complete
             )
+            # Opportunistic cleanup: drop listings that have been sold/removed
+            # for longer than the retention window (config.RETENTION_DAYS).
+            db.prune_stale()
 
     return SearchResult(report=report, top=top)
 

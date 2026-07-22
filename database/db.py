@@ -19,7 +19,7 @@ import sqlalchemy
 from sqlalchemy import bindparam, create_engine, text
 from sqlalchemy.engine import Connection, Engine, make_url
 
-from config import DATABASE_URL, DB_PATH
+from config import DATABASE_URL, DB_PATH, RETENTION_DAYS
 from models import AIReport, Listing
 
 log = logging.getLogger(__name__)
@@ -243,6 +243,47 @@ class Database:
                     },
                 )
 
+    def prune_stale(self, days: Optional[int] = None) -> tuple[int, int]:
+        """Delete listings inactive for longer than `days` plus their history.
+
+        Defaults to config.RETENTION_DAYS; 0 (or negative) is a no-op.
+        Returns (listings_deleted, history_rows_deleted).
+        """
+        days = RETENTION_DAYS if days is None else days
+        if days <= 0:
+            return (0, 0)
+        from datetime import timedelta, timezone
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self.connect() as conn:
+            history = conn.execute(
+                text(
+                    """
+                    DELETE FROM price_history
+                    WHERE EXISTS (
+                        SELECT 1 FROM listings l
+                        WHERE l.id = price_history.listing_id
+                          AND l.query = price_history.query
+                          AND l.is_active = 0
+                          AND l.scraped_at < :cutoff
+                    )
+                    """
+                ),
+                {"cutoff": cutoff},
+            ).rowcount
+            listings = conn.execute(
+                text(
+                    "DELETE FROM listings WHERE is_active = 0 AND scraped_at < :cutoff"
+                ),
+                {"cutoff": cutoff},
+            ).rowcount
+        if listings or history:
+            log.info(
+                "Pruned %d stale listings and %d history rows (older than %d days).",
+                listings, history, days,
+            )
+        return (int(listings), int(history))
+
     def get_by_query(self, query: str, active_only: bool = False) -> list[Listing]:
         sql = "SELECT * FROM listings WHERE query = :query"
         if active_only:
@@ -456,3 +497,7 @@ def get_price_history(listing_id: str, query: str) -> list[tuple[datetime, int]]
 
 def get_listing_histories(listing_id: str) -> list[tuple[Listing, list[tuple[datetime, int]]]]:
     return _get().get_listing_histories(listing_id)
+
+
+def prune_stale(days: Optional[int] = None) -> tuple[int, int]:
+    return _get().prune_stale(days)

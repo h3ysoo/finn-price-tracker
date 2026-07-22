@@ -63,6 +63,10 @@ LISTING_MIN_PRICE = _env_int("LISTING_MIN_PRICE", 500)
 # cost / IP-risk reducer once several people share one deployment.
 SEARCH_CACHE_TTL_HOURS = _env_float("SEARCH_CACHE_TTL_HOURS", 6.0)
 
+# Delete listings that have been inactive (sold/removed) for longer than
+# this many days, along with their price history (0 keeps everything).
+RETENTION_DAYS = _env_int("RETENTION_DAYS", 60)
+
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"

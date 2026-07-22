@@ -23,6 +23,11 @@ Streamlit web UI.
 - **Result cache** — repeating a search within `SEARCH_CACHE_TTL_HOURS`
   (default 6 h) serves stored results instantly instead of re-scraping;
   override with `--fresh` (CLI) or the *Force fresh scan* toggle (web)
+- Queries are normalized (case/spacing) so variants share one cache,
+  history, and set of rows
+- **Retention** — listings sold/removed for more than `RETENTION_DAYS`
+  (default 60) are pruned automatically after each scan; `prune` runs it
+  on demand
 - CSV/JSON export for spreadsheets and scripts
 - SQLite persistence; colorful terminal output with `rich`
 - UTF-8 + Norwegian character support (æ ø å)
@@ -112,6 +117,10 @@ python main.py history 400111222
 # Export stored listings of a query as CSV or JSON
 python main.py export "iPhone 13 Pro Max 256GB" -o listings.csv
 python main.py export "iPhone 13 Pro Max 256GB" --format json
+
+# Delete listings sold/removed longer ago than the retention window
+python main.py prune            # uses RETENTION_DAYS (default 60)
+python main.py prune --days 30
 
 # Verbose logging
 python main.py -v search "Canon EOS R6"

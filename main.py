@@ -318,6 +318,20 @@ def _write_export(f, rows: list[dict], fmt: str) -> None:
         writer.writerows(rows)
 
 
+def cmd_prune(args: argparse.Namespace) -> int:
+    """Delete listings sold/removed longer ago than the retention window."""
+    db = Database()
+    listings, history = db.prune_stale(days=args.days)
+    if listings or history:
+        console.print(
+            f"[green]✓[/green] Pruned {listings} stale listings and "
+            f"{history} price-history rows."
+        )
+    else:
+        console.print("[dim]Nothing to prune.[/dim]")
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="finn-price-tracker",
@@ -352,6 +366,10 @@ def _build_parser() -> argparse.ArgumentParser:
     ep.add_argument("--format", choices=["csv", "json"], default="csv")
     ep.add_argument("-o", "--output", help="Output file (defaults to stdout)")
 
+    pp = sub.add_parser("prune", help="Delete long-inactive listings and their history")
+    pp.add_argument("--days", type=int, default=None,
+                    help="Retention window in days (default: RETENTION_DAYS from config)")
+
     return p
 
 
@@ -369,6 +387,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return cmd_history(args)
     if args.cmd == "export":
         return cmd_export(args)
+    if args.cmd == "prune":
+        return cmd_prune(args)
     return 1
 
 
