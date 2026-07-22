@@ -104,9 +104,15 @@ Goal: scraping never runs inside the web process.
       (default 6 h, 0 disables). `SearchParams.use_cache=False` / CLI
       `--fresh` / web "Force fresh scan" bypass it; results are labeled with
       the scan time. Tested in `tests/test_cache.py`.
+- [x] **Query normalization** (`normalize_query` in `pipeline.py`): case/
+      spacing variants share one cache, price history, and set of rows.
+- [x] **Retention pruning** (`Database.prune_stale`, `config.RETENTION_DAYS`,
+      `prune` CLI): listings sold/removed past the window and their history are
+      deleted; run_search prunes opportunistically after each scan.
+      Tested in `tests/test_prune.py`.
 - [ ] Add `user_id` scoping: searches belong to users; listings/history remain
       shared (they're public market data) but "saved searches" views become
-      per-user.
+      per-user. **Deferred into Phase 4** (needs the user model).
 
 ## Phase 4 — Auth, quotas, cost control (kills problem #2)
 
