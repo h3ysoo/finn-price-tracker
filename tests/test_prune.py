@@ -1,8 +1,6 @@
 """Retention pruning: long-inactive listings and their history are deleted."""
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import text
-
 from database import Database
 from models import Listing
 
@@ -21,8 +19,8 @@ def _listing(id_, price, at, query="iphone 13"):
 def _history_count(db) -> int:
     with db.connect() as conn:
         return conn.execute(
-            text("SELECT COUNT(*) AS c FROM price_history")
-        ).mappings().fetchone()["c"]
+            "SELECT COUNT(*) c FROM price_history"
+        ).fetchone()["c"]
 
 
 def test_prune_deletes_old_inactive_with_history(tmp_path):

@@ -35,10 +35,6 @@ DB_PATH = Path(os.getenv("DB_PATH", str(DATA_DIR / "listings.db")))
 
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Full SQLAlchemy database URL (e.g. postgresql+psycopg://user:pw@host/db).
-# Empty means "SQLite file at DB_PATH" — the zero-setup local default.
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-
 # Claude API
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-5")
