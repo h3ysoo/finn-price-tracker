@@ -1,8 +1,7 @@
 """Project settings.
 
-Loaded from `.env` / environment variables. Every deployment-relevant
-setting can be overridden via an environment variable (used by the Docker
-setup); the defaults below keep local development behavior unchanged.
+Loaded from `.env` / environment variables. Any setting can be overridden
+via an environment variable; the defaults below are the normal local values.
 """
 from __future__ import annotations
 
