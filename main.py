@@ -24,7 +24,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES
+from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES, LISTING_MIN_PRICE
 from database import Database
 from models import Listing, PriceReport
 from pipeline import SearchParams, normalize_query, run_search
@@ -143,6 +143,7 @@ async def cmd_search(args: argparse.Namespace) -> int:
         query=args.query,
         pages=args.pages,
         ai_limit=ai_limit,
+        min_price=args.min_price,
         deep_scan=args.deep_scan,
         use_cache=not args.fresh,
     )
@@ -344,6 +345,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("query", help="Search term, e.g. 'iPhone 13 Pro Max 256GB'")
     sp.add_argument("--pages", type=int, default=DEFAULT_PAGES)
     sp.add_argument("--ai-limit", type=int, default=AI_ANALYSIS_LIMIT)
+    sp.add_argument("--min-price", type=int, default=LISTING_MIN_PRICE,
+                    help="Drop listings below this price (accessories, boxes, etc.)")
     sp.add_argument("--show-browser", action="store_true", help="Run without headless mode")
     sp.add_argument("--deep-scan", action="store_true",
                     help="Read every listing's detail page (more accurate scores, slower)")
