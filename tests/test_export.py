@@ -63,3 +63,15 @@ def test_export_unknown_query(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "Database", lambda: db)
     rc = main.cmd_export(argparse.Namespace(query="missing", format="csv", output=None))
     assert rc == 1
+
+
+def test_export_creates_missing_parent_dirs(tmp_path, monkeypatch):
+    db = _seed(tmp_path)
+    monkeypatch.setattr(main, "Database", lambda: db)
+    out = tmp_path / "sub" / "dir" / "listings.csv"  # parents don't exist yet
+    rc = main.cmd_export(
+        argparse.Namespace(query="iphone 13", format="csv", output=str(out))
+    )
+    assert rc == 0
+    assert out.exists()
+    assert len(list(csv.DictReader(out.open(encoding="utf-8")))) == 2

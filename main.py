@@ -41,6 +41,19 @@ def _setup_logging(verbose: bool) -> None:
     )
 
 
+def _int_at_least(minimum: int):
+    """argparse type: an int >= minimum, else a clear parse error."""
+    def _parse(value: str) -> int:
+        try:
+            n = int(value)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"'{value}' is not an integer")
+        if n < minimum:
+            raise argparse.ArgumentTypeError(f"must be >= {minimum} (got {n})")
+        return n
+    return _parse
+
+
 def _format_price(v: Optional[int | float]) -> str:
     if v is None or v == 0:
         return "—"
@@ -301,6 +314,8 @@ def cmd_export(args: argparse.Namespace) -> int:
 
     if args.output:
         out_path = Path(args.output)
+        if out_path.parent and not out_path.parent.exists():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open("w", newline="", encoding="utf-8") as f:
             _write_export(f, rows, args.format)
         console.print(f"[green]✓[/green] {len(rows)} listings written to: {out_path}")
@@ -343,9 +358,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("search", help="Search Finn.no and analyze results")
     sp.add_argument("query", help="Search term, e.g. 'iPhone 13 Pro Max 256GB'")
-    sp.add_argument("--pages", type=int, default=DEFAULT_PAGES)
-    sp.add_argument("--ai-limit", type=int, default=AI_ANALYSIS_LIMIT)
-    sp.add_argument("--min-price", type=int, default=LISTING_MIN_PRICE,
+    sp.add_argument("--pages", type=_int_at_least(1), default=DEFAULT_PAGES)
+    sp.add_argument("--ai-limit", type=_int_at_least(0), default=AI_ANALYSIS_LIMIT,
+                    help="AI-analyze the N cheapest candidates (0 to skip AI)")
+    sp.add_argument("--min-price", type=_int_at_least(0), default=LISTING_MIN_PRICE,
                     help="Drop listings below this price (accessories, boxes, etc.)")
     sp.add_argument("--show-browser", action="store_true", help="Run without headless mode")
     sp.add_argument("--deep-scan", action="store_true",
@@ -354,11 +370,11 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="Skip the result cache and always run a new scan")
 
     dp = sub.add_parser("deals", help="List the best deals from the DB")
-    dp.add_argument("--limit", type=int, default=10)
+    dp.add_argument("--limit", type=_int_at_least(1), default=10)
     dp.add_argument("--query", help="Restrict results to a single search")
 
     rp = sub.add_parser("drops", help="List listings whose price dropped")
-    rp.add_argument("--limit", type=int, default=10)
+    rp.add_argument("--limit", type=_int_at_least(1), default=10)
     rp.add_argument("--query", help="Restrict results to a single search")
 
     hp = sub.add_parser("history", help="Show recorded price history for a listing")
@@ -370,7 +386,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ep.add_argument("-o", "--output", help="Output file (defaults to stdout)")
 
     pp = sub.add_parser("prune", help="Delete long-inactive listings and their history")
-    pp.add_argument("--days", type=int, default=None,
+    pp.add_argument("--days", type=_int_at_least(0), default=None,
                     help="Retention window in days (default: RETENTION_DAYS from config)")
 
     return p
