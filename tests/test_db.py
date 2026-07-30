@@ -154,6 +154,22 @@ def test_missing_listings_marked_inactive(tmp_path):
     assert {l.id for l in db.get_best_deals()} == {"111", "222"}
 
 
+def test_prune_missing_scales_past_sqlite_variable_limit(tmp_path):
+    # A large scan (> SQLite's 999-variable limit) must not crash and must
+    # still deactivate listings that dropped out on the next scan.
+    db = Database(path=tmp_path / "t.db")
+    first = [_listing(str(i), 1000 + i) for i in range(1500)]
+    db.save_listings(first)
+    assert len(db.get_by_query("iphone 13", active_only=True)) == 1500
+
+    # Next scan returns only the first 1000; the other 500 must go inactive
+    db.save_listings([_listing(str(i), 1000 + i, at=T1) for i in range(1000)])
+    active = {l.id for l in db.get_by_query("iphone 13", active_only=True)}
+    assert len(active) == 1000
+    assert "1200" not in active  # a dropped listing is now inactive
+    assert "500" in active       # a re-seen listing stays active
+
+
 def test_partial_scan_does_not_prune(tmp_path):
     db = Database(path=tmp_path / "t.db")
     db.save_listings([_listing("111", 5000), _listing("222", 7000)])

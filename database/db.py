@@ -129,6 +129,15 @@ class Database:
         if not rows:
             return 0
         with self.connect() as conn:
+            if prune_missing:
+                # Flip every row of the scanned queries to inactive first; the
+                # upsert below reactivates the ones actually seen this scan.
+                # (Avoids a huge `id NOT IN (...)` that hits SQLite's variable
+                # limit on popular queries with many pages.)
+                for query in {l.query for l in listings}:
+                    conn.execute(
+                        "UPDATE listings SET is_active = 0 WHERE query = ?", (query,)
+                    )
             conn.executemany(
                 """
                 INSERT INTO listings
@@ -155,23 +164,7 @@ class Database:
                 rows,
             )
             self._record_price_history(conn, listings)
-            if prune_missing:
-                self._mark_missing_inactive(conn, listings)
         return len(rows)
-
-    @staticmethod
-    def _mark_missing_inactive(conn: sqlite3.Connection, listings: list[Listing]) -> None:
-        """Listings missing from a fresh scan of the same query are treated as sold/removed."""
-        by_query: dict[str, list[str]] = {}
-        for l in listings:
-            by_query.setdefault(l.query, []).append(l.id)
-        for query, ids in by_query.items():
-            placeholders = ",".join("?" * len(ids))
-            conn.execute(
-                f"UPDATE listings SET is_active = 0 "
-                f"WHERE query = ? AND id NOT IN ({placeholders})",
-                (query, *ids),
-            )
 
     @staticmethod
     def _record_price_history(conn: sqlite3.Connection, listings: list[Listing]) -> None:

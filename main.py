@@ -150,6 +150,9 @@ def _render_ai_details(listings: list[Listing]) -> None:
 
 async def cmd_search(args: argparse.Namespace) -> int:
     ai_limit: int = args.ai_limit
+    if not args.query.strip():
+        console.print("[red]Search term is empty.[/red]")
+        return 1
     console.rule(f"[bold]Finn.no search: '{args.query}'[/bold]")
 
     params = SearchParams(

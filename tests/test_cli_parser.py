@@ -1,6 +1,10 @@
 """CLI argument parsing — flags flow through to the search parameters."""
+import argparse
+import asyncio
+
 import pytest
 
+import main
 from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES, LISTING_MIN_PRICE
 from main import _build_parser
 
@@ -55,3 +59,12 @@ def test_accepts_valid_boundaries():
     assert _parse(["search", "x", "--min-price", "0"]).min_price == 0
     assert _parse(["prune", "--days", "0"]).days == 0
     assert _parse(["deals", "--limit", "1"]).limit == 1
+
+
+@pytest.mark.parametrize("query", ["", "   ", "\t "])
+def test_search_rejects_empty_query_without_scraping(query, monkeypatch):
+    # If the guard fails, cmd_search would construct FinnScraper; make that blow up
+    monkeypatch.setattr(main, "run_search", None)
+    args = argparse.Namespace(query=query, pages=3, ai_limit=5, min_price=500,
+                              deep_scan=False, fresh=False, show_browser=False)
+    assert asyncio.run(main.cmd_search(args)) == 1
