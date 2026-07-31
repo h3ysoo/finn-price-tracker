@@ -375,7 +375,9 @@ class FinnScraper:
                 log.info("Detail: %d/%d — %s", done, total, listing.title[:50])
                 await asyncio.sleep(random.uniform(REQUEST_DELAY_MIN, REQUEST_DELAY_MAX))
 
-        await asyncio.gather(*(_fetch_one(l) for l in listings))
+        # return_exceptions=True: one listing's detail-page failure must not
+        # abort enrichment of all the others.
+        await asyncio.gather(*(_fetch_one(l) for l in listings), return_exceptions=True)
 
     async def search(self, query: str, pages: int = DEFAULT_PAGES) -> list[Listing]:
         """Scan multiple pages for a given search term."""

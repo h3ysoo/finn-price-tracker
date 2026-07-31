@@ -165,11 +165,17 @@ async def analyze_listing_ai(
 
     parsed = block.input
     try:
+        # Clamp/sanitize the model's numbers so one out-of-range value can't
+        # discard the whole report (or persist a nonsensical battery %).
+        condition = max(1, min(10, int(parsed["condition_score"])))
         battery = parsed.get("battery_pct")
+        battery = int(battery) if battery is not None else None
+        if battery is not None and not (1 <= battery <= 100):
+            battery = None
         return AIReport(
-            condition_score=int(parsed["condition_score"]),
-            battery_pct=int(battery) if battery is not None else None,
-            red_flags=list(parsed.get("red_flags", [])),
+            condition_score=condition,
+            battery_pct=battery,
+            red_flags=[str(f) for f in parsed.get("red_flags", [])],
             summary=str(parsed.get("summary", "")),
         )
     except Exception as e:
