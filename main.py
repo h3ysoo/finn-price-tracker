@@ -288,11 +288,13 @@ def cmd_history(args: argparse.Namespace) -> int:
 
 _EXPORT_FIELDS = [
     "id", "query", "title", "price_nok", "price_score", "composite_score",
-    "condition_score", "battery_pct", "location", "url", "scraped_at",
+    "condition_score", "battery_pct", "ai_summary", "red_flags",
+    "location", "url", "scraped_at",
 ]
 
 
 def _listing_to_export_row(l: Listing) -> dict:
+    r = l.ai_report
     return {
         "id": l.id,
         "query": l.query,
@@ -300,8 +302,11 @@ def _listing_to_export_row(l: Listing) -> dict:
         "price_nok": l.price_nok,
         "price_score": l.price_score,
         "composite_score": l.composite_score,
-        "condition_score": l.ai_report.condition_score if l.ai_report else None,
-        "battery_pct": l.ai_report.battery_pct if l.ai_report else None,
+        "condition_score": r.condition_score if r else None,
+        "battery_pct": r.battery_pct if r else None,
+        "ai_summary": r.summary if r else None,
+        # joined for a single CSV cell; still readable in JSON
+        "red_flags": "; ".join(r.red_flags) if r and r.red_flags else None,
         "location": l.location,
         "url": l.url,
         "scraped_at": l.scraped_at.isoformat(),

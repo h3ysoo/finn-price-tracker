@@ -70,10 +70,15 @@ def compute_score(listing: Listing) -> float:
         score += 20.0  # no price → neutral
 
     # ── 2. Battery component (max 30 points) ──────────────────────────────
-    battery = _extract_battery(text)
+    # Prefer the AI-extracted battery health (more reliable than the text
+    # regex); fall back to scraping it from the title/description.
+    if listing.ai_report is not None and listing.ai_report.battery_pct is not None:
+        battery = listing.ai_report.battery_pct
+    else:
+        battery = _extract_battery(text)
     if battery is not None:
         # 100% → 30, 80% → 24, 70% → 21, 50% → 15
-        score += battery * 0.30
+        score += min(30.0, battery * 0.30)
     else:
         score += 18.0  # no info → middling score
 

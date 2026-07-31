@@ -17,7 +17,8 @@ def _seed(tmp_path):
             id="111", query="iphone 13", title="iPhone 13, æøå test",
             price_nok=5000, url="https://finn.no/111", location="Oslo",
             scraped_at=T0, price_score=-12.5, composite_score=80.0,
-            ai_report=AIReport(condition_score=9, battery_pct=88, summary="s"),
+            ai_report=AIReport(condition_score=9, battery_pct=88, summary="Clean",
+                               red_flags=["Small scratch", "No box"]),
         ),
         Listing(
             id="222", query="iphone 13", title="iPhone 13 mini",
@@ -45,6 +46,8 @@ def test_export_csv(tmp_path, monkeypatch):
     assert first["price_nok"] == "5000"
     assert first["condition_score"] == "9"
     assert first["battery_pct"] == "88"
+    assert first["ai_summary"] == "Clean"
+    assert first["red_flags"] == "Small scratch; No box"  # joined into one cell
 
 
 def test_export_json(tmp_path, monkeypatch):
@@ -53,8 +56,12 @@ def test_export_json(tmp_path, monkeypatch):
     data = json.loads(out.read_text(encoding="utf-8"))
     by_id = {r["id"]: r for r in data}
     assert by_id["111"]["composite_score"] == 80.0
+    assert by_id["111"]["ai_summary"] == "Clean"
+    assert by_id["111"]["red_flags"] == "Small scratch; No box"
     assert by_id["222"]["price_nok"] is None
     assert by_id["222"]["condition_score"] is None
+    assert by_id["222"]["ai_summary"] is None    # no AI report
+    assert by_id["222"]["red_flags"] is None
     assert by_id["111"]["scraped_at"] == T0.isoformat()
 
 

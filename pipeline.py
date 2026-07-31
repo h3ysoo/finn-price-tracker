@@ -15,6 +15,7 @@ from typing import Callable, Optional
 from analyzer import (
     analyze_prices,
     analyze_top_listings,
+    compute_score,
     score_listings,
     select_candidates,
 )
@@ -142,6 +143,11 @@ async def run_search(
                 score_listings(listings)  # refresh with full descriptions
             report_stage(f"AI-analyzing {len(top)} listings")
             await analyze_top_listings(top, limit=params.ai_limit)
+            # Recompute the composite for analyzed listings so the AI-extracted
+            # battery feeds the score (scoring above ran before AI). Keep the
+            # existing order — only the score values change.
+            for l in top:
+                l.composite_score = compute_score(l)
 
         if persist:
             report_stage("Saving results")
