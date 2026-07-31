@@ -28,6 +28,7 @@ from config import AI_ANALYSIS_LIMIT, DEFAULT_PAGES, LISTING_MIN_PRICE
 from database import Database
 from models import Listing, PriceReport
 from pipeline import SearchParams, normalize_query, run_search
+from scraper.finn_scraper import _extract_id_from_url
 
 console = Console()
 
@@ -247,7 +248,9 @@ def cmd_drops(args: argparse.Namespace) -> int:
 def cmd_history(args: argparse.Namespace) -> int:
     """Show recorded price points for a listing, grouped by query."""
     db = Database()
-    entries = db.get_listing_histories(args.id)
+    # Accept either a bare finnkode or a full Finn listing URL
+    listing_id = _extract_id_from_url(args.id)
+    entries = db.get_listing_histories(listing_id)
     if not entries:
         console.print(
             f"[yellow]No price history for '{args.id}'. Double-check the finnkode "
@@ -381,7 +384,7 @@ def _build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--query", help="Restrict results to a single search")
 
     hp = sub.add_parser("history", help="Show recorded price history for a listing")
-    hp.add_argument("id", help="Finn listing code (finnkode), e.g. 400111222")
+    hp.add_argument("id", help="Finn listing code or URL, e.g. 400111222 or the item link")
 
     ep = sub.add_parser("export", help="Export stored listings for a query")
     ep.add_argument("query", help="Search to export, e.g. 'iPhone 13 Pro Max 256GB'")
@@ -395,22 +398,35 @@ def _build_parser() -> argparse.ArgumentParser:
     return p
 
 
+_DB_COMMANDS = {
+    "deals": cmd_deals,
+    "drops": cmd_drops,
+    "history": cmd_history,
+    "export": cmd_export,
+    "prune": cmd_prune,
+}
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     args = _build_parser().parse_args(argv)
     _setup_logging(args.verbose)
 
-    if args.cmd == "search":
-        return asyncio.run(cmd_search(args))
-    if args.cmd == "deals":
-        return cmd_deals(args)
-    if args.cmd == "drops":
-        return cmd_drops(args)
-    if args.cmd == "history":
-        return cmd_history(args)
-    if args.cmd == "export":
-        return cmd_export(args)
-    if args.cmd == "prune":
-        return cmd_prune(args)
+    try:
+        if args.cmd == "search":
+            return asyncio.run(cmd_search(args))
+        handler = _DB_COMMANDS.get(args.cmd)
+        if handler is not None:
+            return handler(args)
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Interrupted.[/yellow]")
+        return 130
+    except Exception as e:
+        # A corrupt/locked DB or other unexpected failure gives a clean
+        # message instead of a raw traceback (use -v for the full trace).
+        console.print(f"[red]Error:[/red] {e}")
+        if args.verbose:
+            raise
+        return 2
     return 1
 
 

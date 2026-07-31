@@ -91,8 +91,9 @@ python main.py deals --query "iPhone 13 Pro Max 256GB"
 python main.py drops
 python main.py drops --query "iPhone 13 Pro Max 256GB"
 
-# Recorded price history of a single listing (by finnkode)
+# Recorded price history of a single listing (finnkode or full listing URL)
 python main.py history 400111222
+python main.py history "https://www.finn.no/recommerce/forsale/item/400111222"
 
 # Export stored listings of a query as CSV or JSON
 python main.py export "iPhone 13 Pro Max 256GB" -o listings.csv
