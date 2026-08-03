@@ -372,7 +372,7 @@ if results is not None:
     analyzed = [l for l in top if l.ai_report]
     if analyzed:
         st.subheader("🤖 AI Analysis Details")
-        st.caption(f"The {len(analyzed)} cheapest listings were evaluated with Claude Vision.")
+        st.caption(f"The top {len(analyzed)} candidate listings were evaluated with Claude Vision.")
 
         db = Database()
         for l in analyzed:
@@ -380,7 +380,7 @@ if results is not None:
             score = r.condition_score
             icon = "🟢" if score >= 8 else "🟡" if score >= 5 else "🔴"
             price_tag = _fmt_price(l.price_nok)
-            price_score_tag = f"{l.price_score:+.1f}%" if l.price_score else ""
+            price_score_tag = f"{l.price_score:+.1f}%" if l.price_score is not None else ""
 
             city = l.location.split(",")[0].strip() if l.location else "Location unknown"
             cscore_tag = f"  |  ⭐ {l.composite_score}" if l.composite_score is not None else ""
@@ -402,8 +402,13 @@ if results is not None:
                         st.metric("⭐ Deal Score", f"{l.composite_score}/100")
                     st.metric("Condition Score", f"{score}/10")
                     if r.battery_pct:
-                        bat_color = "normal" if r.battery_pct >= 80 else "inverse"
-                        st.metric("Battery", f"{r.battery_pct}%", delta_color=bat_color)
+                        # delta_color only applies when a delta is set, so show
+                        # health as a signed delta vs. full (100%): lower reads red.
+                        st.metric(
+                            "Battery", f"{r.battery_pct}%",
+                            delta=f"{r.battery_pct - 100}%" if r.battery_pct < 100 else None,
+                            delta_color="normal",
+                        )
                     if l.price_score is not None:
                         st.metric("Market Diff", f"{l.price_score:+.1f}%")
 
