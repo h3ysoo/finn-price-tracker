@@ -1,0 +1,13 @@
+[project]
+name = "finn-price-tracker"
+version = "0.1.0"
+description = "Price analysis tool for Finn.no with Claude Vision listing evaluation"
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Put the project root on sys.path so tests can import the top-level modules
+# without a conftest hack.
+pythonpath = ["."]
+addopts = "-q"

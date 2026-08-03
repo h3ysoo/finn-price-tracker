@@ -1,4 +1,2 @@
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Project root is added to sys.path via [tool.pytest.ini_options] pythonpath
+# in pyproject.toml — no manual path manipulation needed here.
