@@ -164,6 +164,23 @@ outlier listing can't skew every score.
 - AI analysis incurs API costs; by default only the 5 best candidates are analyzed (`--ai-limit` to change). The model is set in `config.py`.
 - Do not lower the rate limit aggressively to stay within Finn.no's Terms of Service.
 
+## Security
+
+Listing content from Finn.no is treated as untrusted input:
+
+- **SSRF guard** — a listing's image URL is only downloaded (and forwarded to
+  Claude) if it is `https` on the `*.finn.no` / `*.finncdn.no` domains; IP
+  literals, `localhost`, `file:`, `data:` and off-domain hosts are rejected
+  (`netutil.py`). Scraped listing URLs are likewise validated before they
+  reach the database or UI.
+- **Prompt-injection** — the AI prompt tells Claude to treat the seller's
+  title/description strictly as data and ignore any embedded instructions;
+  numeric AI output is clamped/sanitized.
+- **CSV formula injection** — cells beginning with `= + - @` are escaped in
+  CSV export so a crafted title can't run as a spreadsheet formula.
+- Secrets live only in `.env` (gitignored); no shell/eval/subprocess is used,
+  and all SQL is parameterized.
+
 ## Disclaimer
 
 This project is intended for **personal and educational use only**. It is not
