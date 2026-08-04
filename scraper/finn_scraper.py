@@ -10,6 +10,7 @@ from urllib.parse import urlencode, urljoin
 
 from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
+from netutil import is_allowed_image_url, safe_finn_listing_url
 from config import (
     DEFAULT_PAGES,
     FINN_BASE_URL,
@@ -159,7 +160,11 @@ class FinnScraper:
         href = await link.get_attribute("href") or ""
         if not href:
             return None
-        url = urljoin(FINN_BASE_URL, href)
+        # Untrusted href: reject javascript:/data:/off-domain URLs so they
+        # never reach the DB or the UI as clickable links.
+        url = safe_finn_listing_url(urljoin(FINN_BASE_URL, href))
+        if not url:
+            return None
         listing_id = _extract_id_from_url(url)
 
         # Title
@@ -201,7 +206,7 @@ class FinnScraper:
                 or await img_el.get_attribute("data-src")
                 or ""
             )
-            if src:
+            if src and is_allowed_image_url(src):
                 image_urls.append(src)
 
         # Description snippet (sometimes on the card)
@@ -333,6 +338,8 @@ class FinnScraper:
                         pass
                     # Upgrade Finn CDN size parameter to high resolution
                     src = _upgrade_finn_image_url(src)
+                    if not is_allowed_image_url(src):
+                        continue  # defense in depth: only Finn CDN images
                     seen_urls.add(src)
                     gallery_urls.append(src)
 

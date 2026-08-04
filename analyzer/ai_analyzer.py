@@ -17,6 +17,7 @@ from config import (
     USER_AGENT,
 )
 from models import AIReport, Listing
+from netutil import is_allowed_image_url
 
 log = logging.getLogger(__name__)
 
@@ -75,7 +76,14 @@ AI_REPORT_TOOL = {
 
 
 async def _download_image(url: str) -> Optional[tuple[bytes, str]]:
-    """Download an image and return (bytes, media_type)."""
+    """Download an image and return (bytes, media_type).
+
+    Only https images on the Finn CDN are fetched — a listing's image URL
+    is untrusted input, so this blocks SSRF to internal/other hosts.
+    """
+    if not is_allowed_image_url(url):
+        log.warning("Blocked non-Finn image URL: %s", url)
+        return None
     try:
         async with aiohttp.ClientSession(
             headers={"User-Agent": USER_AGENT},
