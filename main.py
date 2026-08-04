@@ -335,6 +335,17 @@ def cmd_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def _csv_safe(value):
+    """Neutralize CSV formula injection from untrusted scraped text.
+
+    A cell starting with = + - @ (or tab/CR) is run as a formula by Excel/
+    Sheets. Prefix such values with an apostrophe so they stay literal.
+    """
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def _write_export(f, rows: list[dict], fmt: str) -> None:
     if fmt == "json":
         json.dump(rows, f, ensure_ascii=False, indent=2)
@@ -342,7 +353,7 @@ def _write_export(f, rows: list[dict], fmt: str) -> None:
     else:
         writer = csv.DictWriter(f, fieldnames=_EXPORT_FIELDS)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows({k: _csv_safe(v) for k, v in row.items()} for row in rows)
 
 
 def cmd_prune(args: argparse.Namespace) -> int:

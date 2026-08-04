@@ -72,6 +72,34 @@ def test_export_unknown_query(tmp_path, monkeypatch):
     assert rc == 1
 
 
+def test_csv_formula_injection_is_neutralized(tmp_path, monkeypatch):
+    db = Database(path=tmp_path / "t.db")
+    db.save_listings([Listing(
+        id="911", query="iphone 13", title="=cmd|'/c calc'!A1",  # malicious title
+        price_nok=5000, url="https://finn.no/911", scraped_at=T0, price_score=-1.0,
+    )])
+    monkeypatch.setattr(main, "Database", lambda: db)
+    out = tmp_path / "x.csv"
+    main.cmd_export(argparse.Namespace(query="iphone 13", format="csv", output=str(out)))
+    rows = list(csv.DictReader(out.open(encoding="utf-8")))
+    # The '=' is prefixed with an apostrophe so a spreadsheet won't run it
+    assert rows[0]["title"] == "'=cmd|'/c calc'!A1"
+
+
+def test_json_export_keeps_raw_title(tmp_path, monkeypatch):
+    # JSON has no formula-injection risk, so the value stays untouched
+    db = Database(path=tmp_path / "t.db")
+    db.save_listings([Listing(
+        id="912", query="iphone 13", title="=danger",
+        price_nok=5000, url="https://finn.no/912", scraped_at=T0, price_score=-1.0,
+    )])
+    monkeypatch.setattr(main, "Database", lambda: db)
+    out = tmp_path / "x.json"
+    main.cmd_export(argparse.Namespace(query="iphone 13", format="json", output=str(out)))
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data[0]["title"] == "=danger"
+
+
 def test_export_creates_missing_parent_dirs(tmp_path, monkeypatch):
     db = _seed(tmp_path)
     monkeypatch.setattr(main, "Database", lambda: db)
